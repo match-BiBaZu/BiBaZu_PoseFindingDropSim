@@ -92,6 +92,8 @@ def reindex_roadmaps(
     if manifest.get("roadmap_sha256") not in {_sha256(yaml_source), _sha256(json_source)}:
         raise ValueError("The simulation was run with a different version of these roadmaps.")
     summary = _read_json(summary_path)
+    if not summary.get("group_poses", True):
+        raise ValueError("Die Neunummerierung benötigt gruppierte Posen.")
     frequencies = summary.get("pose_frequencies")
     if not isinstance(frequencies, list):
         raise ValueError("Simulation summary has no pose frequencies.")

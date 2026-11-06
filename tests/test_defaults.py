@@ -73,6 +73,34 @@ def test_save_parameters_without_model_and_reload_on_gui_restart(tmp_path, monke
         del app
 
 
+def test_stopped_mode_and_grouping_persist_with_running_belt_presets(tmp_path):
+    app = QApplication.instance() or QApplication([])
+    path = tmp_path / "defaults.json"
+    window = DropSimulationWindow(settings_path=path)
+    try:
+        window.belt_spin.setValue(125)
+        window.belt_variation_spin.setValue(7)
+        window.belt_mode_combo.setCurrentIndex(window.belt_mode_combo.findData("stopped"))
+        window.group_poses_check.setChecked(False)
+        window.save_defaults_button.click()
+    finally:
+        window.close()
+    reopened = DropSimulationWindow(settings_path=path)
+    try:
+        assert reopened.belt_mode_combo.currentData() == "stopped"
+        assert not reopened.group_poses_check.isChecked()
+        assert not reopened.catalog_export_group.isEnabled()
+        assert not reopened.belt_spin.isEnabled()
+        assert not reopened.belt_stop_check.isEnabled()
+        reopened.belt_mode_combo.setCurrentIndex(reopened.belt_mode_combo.findData("running"))
+        assert reopened.belt_spin.isEnabled() and reopened.belt_spin.value() == 125
+        assert reopened.belt_variation_spin.value() == 7
+        assert reopened.belt_stop_check.isEnabled() and reopened.belt_stop_check.isChecked()
+    finally:
+        reopened.close()
+        del app
+
+
 def test_invalid_settings_do_not_overwrite_saved_defaults(tmp_path, monkeypatch):
     app = QApplication.instance() or QApplication([])
     path = tmp_path / "gui_defaults.json"

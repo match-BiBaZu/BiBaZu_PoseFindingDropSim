@@ -63,6 +63,30 @@ def test_frictionless_sliding_is_not_rest_and_velocity_is_not_reset(setup):
     assert (sim.R_chute_world @ sim.data.qvel[:3])[0] == pytest.approx(0.1)
 
 
+def test_stopped_from_release_holds_belt_at_zero_and_rejects_longitudinal_sliding(setup, monkeypatch):
+    cfg, part = setup
+    cfg = replace(cfg, belt_mode="stopped", mu_belt=0, mu_wall=0, roughness_enabled=False)
+    sim = ChuteSimulator(cfg, part)
+    quat = np.array([0., 0., 0., 1.])
+    sim._spawn(quat)
+    sim.data.qpos[:3] = sim.R_world_chute @ np.array([0.05, 0.01, 0.01])
+    sim.data.qvel[:3] = sim.R_world_chute[:, 0] * 0.1
+    mujoco.mj_forward(sim.model, sim.data)
+    original_step = mujoco.mj_step
+
+    def step(model, data):
+        assert model.geom_surfacevel[sim.floor_id, 0] == 0
+        original_step(model, data)
+
+    monkeypatch.setattr(mujoco, "mj_step", step)
+    outcome = sim._run_until_end(trial=0, seed=123, initial_quat=quat)
+    assert outcome.status == "unsettled_stationary"
+    assert outcome.sim_time_s == pytest.approx(10, abs=cfg.timestep_s)
+    assert outcome.travel_mm == pytest.approx(1000, abs=1)
+    assert not outcome.belt_speed_control_points
+    assert outcome.stop_observation is None
+
+
 def test_stop_cancellation_is_reported_and_does_not_wait_full_duration(setup):
     cfg, part = setup
     sim = ChuteSimulator(cfg, part)

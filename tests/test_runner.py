@@ -101,6 +101,25 @@ def test_short_real_cube_run_persists_unknown_pose_and_outputs(cube: Path) -> No
     assert result.summary["disturbance_trials"] == 1
 
 
+def test_ungrouped_trials_keep_separate_poses_with_the_same_roadmap_id(cube, monkeypatch):
+    from dashas_drop_sim.pose_matching import PoseResolver
+
+    monkeypatch.setattr(PoseResolver, "resolve", lambda self, quat: PoseMatch("matched", 0, 0))
+    monkeypatch.setattr(PoseResolver, "cluster_unmatched",
+                        lambda *_args: pytest.fail("Ungrouped trials must bypass clustering"))
+    config = _short_config(cube)
+    config.trials = 2
+    config.group_poses = config.compute_stability = False
+    result = run_experiment(config)
+    trials = _csv_rows(result.run_dir / "trials.csv")
+    assert [row["pose_key"] for row in trials] == ["trial_000", "trial_001"]
+    assert [row["roadmap_pose_id"] for row in trials] == ["0", "0"]
+    assert [(row["pose_id"], row["count"]) for row in result.summary["pose_frequencies"]] == [
+        ("trial_000", 1), ("trial_001", 1),
+    ]
+    assert all(row["representative_quat_xyzw"] for row in result.summary["pose_frequencies"])
+
+
 def test_same_seed_repeats_release_and_end_state(cube: Path) -> None:
     config = _short_config(cube)
     first = run_experiment(config)

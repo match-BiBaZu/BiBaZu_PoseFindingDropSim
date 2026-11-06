@@ -4,6 +4,8 @@
     "trials": 100,
     "workers": 4,
     "seed": 42,
+    "belt_mode": "running",
+    "group_poses": true,
     "belt_speed_mm_s": 100.0,
     "belt_speed_variation_mm_s": 3.0,
     "belt_variation_interval_s": 0.2,

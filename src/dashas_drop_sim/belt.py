@@ -14,8 +14,8 @@ MODEL_VERSION = "cosine_interpolated_uniform_speed_v1"
 
 class BeltSpeedProfile:
     def __init__(self, config: RunConfig, seed: int):
-        self.nominal = config.belt_speed_mm_s
-        self.amplitude = config.belt_speed_variation_mm_s
+        self.nominal = config.effective_belt_speed_mm_s
+        self.amplitude = config.effective_belt_variation_mm_s
         self.interval = config.belt_variation_interval_s
         self.rng = np.random.default_rng(np.random.SeedSequence([seed, 0xBE17]))
         self.values = [self.nominal]

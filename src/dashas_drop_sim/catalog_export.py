@@ -330,6 +330,8 @@ def _export_run(run_dir: Path, repo: Path, *, cad_dir: Path | None = None, push:
     if Path(git(repo, "rev-parse", "--show-toplevel")).resolve() != repo:
         raise ValueError("Bitte den Stammordner des Ergebnis-Repos wählen.")
     config, summary, manifest = (_read(run_dir / name) for name in ("config.json", "summary.json", "manifest.json"))
+    if not config.get("group_poses", True):
+        raise ValueError("Der Katalogexport benötigt gruppierte Posen.")
     if summary["cancelled"] or summary["completed_trials"] != summary["requested_trials"]:
         raise ValueError("Nur vollständig abgeschlossene Fallserien werden in den Katalog übernommen.")
     rows = [json.loads(line) for line in (run_dir / "trials.jsonl").read_text(encoding="utf-8").splitlines() if line]

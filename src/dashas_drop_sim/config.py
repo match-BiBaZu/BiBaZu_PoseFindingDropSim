@@ -56,6 +56,20 @@ class RunConfig:
     roughness_belt_ramp_mm: float = 3.0
     roughness_belt_spacing_mm: float = 10.0
     disturbance_levels_mm: tuple[float, ...] = (0.0, 0.05, 0.1, 0.2, 0.4, 0.8)
+    belt_mode: str = "auto"
+    group_poses: bool = True
+
+    @property
+    def effective_belt_speed_mm_s(self) -> float:
+        return 0.0 if self.belt_mode == "stopped" else self.belt_speed_mm_s
+
+    @property
+    def effective_belt_variation_mm_s(self) -> float:
+        return 0.0 if self.belt_mode == "stopped" else self.belt_speed_variation_mm_s
+
+    @property
+    def observe_exit_stop(self) -> bool:
+        return self.belt_mode != "stopped" and self.belt_stop_enabled
 
     def validate(self) -> None:
         for name in ("catalog_repo", "catalog_cad_dir"):
@@ -73,6 +87,8 @@ class RunConfig:
         ):
             raise ValueError("The optional roadmap must be an existing JSON or YAML file.")
         self.validate_parameters()
+        if self.catalog_repo is not None and not self.group_poses:
+            raise ValueError("Catalogue export requires grouped poses.")
 
     def validate_parameters(self) -> None:
         """Validate simulation settings even before a workpiece is selected."""
@@ -88,6 +104,12 @@ class RunConfig:
             raise ValueError("roughness_enabled must be true or false")
         if not isinstance(self.belt_stop_enabled, bool):
             raise ValueError("belt_stop_enabled must be true or false")
+        if self.belt_mode not in ("auto", "running", "stopped"):
+            raise ValueError("belt_mode must be auto, running or stopped")
+        if self.belt_mode == "running" and self.belt_speed_mm_s <= 0:
+            raise ValueError("Running belt mode requires a positive belt speed.")
+        if not isinstance(self.group_poses, bool):
+            raise ValueError("group_poses must be true or false")
         if self.roughness_model not in {"longitudinal_traction", "microfacet", "weight_force", "weight_impulse"}:
             raise ValueError("roughness_model must be longitudinal_traction, microfacet, weight_force or weight_impulse")
         bounds = (
@@ -124,7 +146,7 @@ class RunConfig:
         if self.contact_time_constant_s < 2 * self.timestep_s - 1e-12:
             raise ValueError("contact_time_constant_s must be at least twice timestep_s")
         for center, spread, low, high, label in (
-            (self.belt_speed_mm_s, self.belt_speed_variation_mm_s, 0, 200, "Bandgeschwindigkeit"),
+            (self.effective_belt_speed_mm_s, self.effective_belt_variation_mm_s, 0, 200, "Bandgeschwindigkeit"),
             (self.drop_height_mm, self.drop_height_spread_mm, 0, 200, "Abwurfhöhe"),
             (self.lateral_mm, self.lateral_spread_mm, -100, 100, "Querposition"),
         ):

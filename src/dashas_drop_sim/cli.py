@@ -15,7 +15,7 @@ from .config import RunConfig
 from .geometry import prepare_part
 from .physics import ChuteSimulator
 from .pose_matching import PoseResolver
-from .runner import _new_run_dir, _write_json, build_manifest, run_experiment
+from .runner import SETTLED_STATUSES, _new_run_dir, _pose_key, _write_json, build_manifest
 
 
 def _emit(event: dict) -> None:
@@ -65,11 +65,13 @@ def _preview(config: RunConfig, trial_index: int, *, visible: bool, stopped: thr
     child = np.random.SeedSequence(config.seed).spawn(trial_index + 1)[-1]
     trial_seed = int(child.generate_state(1, dtype=np.uint32)[0])
     outcome = simulator.drop(trial_index, trial_seed, preview=visible, cancel=stopped.is_set)
-    match = resolver.resolve(outcome.final_quat_xyzw) if outcome.status in {"settled", "settled_stationary"} else None
+    match = resolver.resolve(outcome.final_quat_xyzw) if outcome.status in SETTLED_STATUSES else None
     record = outcome.to_dict()
     record["match_status"] = match.status if match else "not_evaluated"
     record["roadmap_pose_id"] = match.pose_id if match else None
     record["match_distance_deg"] = match.distance_deg if match else None
+    if not config.group_poses:
+        record["pose_key"] = _pose_key(record, group_poses=False)
     _write_json(run_dir / "preview.json", record)
     _emit({"event": "done", "run_dir": str(run_dir),
            "message": f"Einzelfall: {outcome.status}, Roadmap-Pose: {match.pose_id if match and match.pose_id is not None else 'keine'}"})

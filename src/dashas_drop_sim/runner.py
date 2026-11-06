@@ -112,9 +112,11 @@ class RunResult:
     summary: dict[str, Any]
 
 
-def _pose_key(row: dict[str, Any]) -> str:
+def _pose_key(row: dict[str, Any], *, group_poses: bool = True) -> str:
     if row["status"] not in SETTLED_STATUSES:
         return str(row["status"])
+    if not group_poses:
+        return f"trial_{row['trial']:03d}"
     if row["match_status"] == "matched":
         return str(row["roadmap_pose_id"])
     if row["match_status"] == "ambiguous":
@@ -130,14 +132,17 @@ def _assign_unknown_clusters(rows: list[dict[str, Any]], resolver: PoseResolver)
 
 
 def _frequency_rows(rows: list[dict[str, Any]], total: int,
-                    known_pose_ids: tuple[int, ...] = ()) -> list[dict[str, Any]]:
-    counts = Counter(_pose_key(row) for row in rows)
+                    known_pose_ids: tuple[int, ...] = (), *,
+                    group_poses: bool = True) -> list[dict[str, Any]]:
+    counts: Counter[str] = Counter()
     known_keys = {str(pose_id) for pose_id in known_pose_ids}
     for key in known_keys:
         counts.setdefault(key, 0)
     first: dict[str, dict[str, Any]] = {}
     for row in rows:
-        first.setdefault(_pose_key(row), row)
+        key = _pose_key(row, group_poses=group_poses)
+        counts[key] += 1
+        first.setdefault(key, row)
     result: list[dict[str, Any]] = []
     for key, count in sorted(counts.items(), key=lambda item: (-item[1], item[0])):
         low, high = wilson_interval(count, total)
@@ -166,13 +171,19 @@ def _orientation_matches_source(source: dict[str, Any], quat: tuple[float, ...],
     return labels[0] == labels[1]
 
 
-def _same_pose(source: dict[str, Any], outcome: TrialOutcome, resolver: PoseResolver) -> bool:
+def _same_pose(source: dict[str, Any], outcome: TrialOutcome, resolver: PoseResolver, *,
+               group_poses: bool = True) -> bool:
     if outcome.status not in SETTLED_STATUSES:
         return False
     # A settled detour into another orientation is a loss even if the part
     # happens to return to its source pose by the exit.
     trace = getattr(outcome, "settled_trace_quat_xyzw", ())
-    return all(_orientation_matches_source(source, quat, resolver) for quat in (*trace, outcome.final_quat_xyzw))
+    orientations = (*trace, outcome.final_quat_xyzw)
+    if not group_poses:
+        minimum_dot = np.cos(np.deg2rad(resolver.cluster_tolerance_deg) / 2)
+        return all(abs(np.dot(source["final_quat_xyzw"], quat)) >= minimum_dot
+                   for quat in orientations)
+    return all(_orientation_matches_source(source, quat, resolver) for quat in orientations)
 
 
 def _stability_rows(
@@ -181,7 +192,7 @@ def _stability_rows(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     representatives: dict[str, dict[str, Any]] = {}
     for row in rows:
-        key = _pose_key(row)
+        key = _pose_key(row, group_poses=config.group_poses)
         if row["status"] in SETTLED_STATUSES and key != "ambiguous":
             representatives.setdefault(key, row)
     directions = disturbance_directions()
@@ -209,7 +220,7 @@ def _stability_rows(
             "energy_j": simulator.part.mass_kg * 9.81 * level / 1000,
             "direction_index": direction_index,
             "direction_chute": direction,
-            "retained": _same_pose(source, outcome, resolver),
+            "retained": _same_pose(source, outcome, resolver, group_poses=config.group_poses),
             "result_status": outcome.status,
             "result_roadmap_pose_id": match.pose_id if match is not None and match.status == "matched" else None,
             "result_match_status": match.status if match is not None else None,
@@ -304,6 +315,9 @@ def build_manifest(config: RunConfig, part: PreparedPart, resolver: PoseResolver
         "classification_tolerance_deg": resolver.match_tolerance_deg,
         "classification_ambiguity_margin_deg": resolver.ambiguity_margin_deg,
         "unknown_cluster_tolerance_deg": resolver.cluster_tolerance_deg,
+        "group_poses": config.group_poses,
+        "belt_mode": config.belt_mode,
+        "effective_belt_speed_mm_s": config.effective_belt_speed_mm_s,
         "release_distribution": {
             "type": "independent_uniform_center_plus_minus_spread",
             "drop_height_range_mm": [config.drop_height_mm - config.drop_height_spread_mm,
@@ -367,16 +381,16 @@ def build_manifest(config: RunConfig, part: PreparedPart, resolver: PoseResolver
                                "Uncalibrated stochastic contact impulses per relative sliding distance; not a fixed surface map or resolved scratch geometry. Traction strength is an equivalent friction assumption, not inferred from scratch depth alone."),
         },
         "belt_speed_variation": {
-            "enabled": config.belt_speed_variation_mm_s > 0,
+            "enabled": config.effective_belt_variation_mm_s > 0,
             "model": BELT_MODEL_VERSION,
-            "speed_range_mm_s": [config.belt_speed_mm_s - config.belt_speed_variation_mm_s,
-                                 config.belt_speed_mm_s + config.belt_speed_variation_mm_s],
+            "speed_range_mm_s": [config.effective_belt_speed_mm_s - config.effective_belt_variation_mm_s,
+                                 config.effective_belt_speed_mm_s + config.effective_belt_variation_mm_s],
             "control_point_interval_s": config.belt_variation_interval_s,
             "control_point_clock": "elapsed time from start of observation (after reseating for stability trials)",
             "interpretation": "Uniform random speed targets joined by smooth cosine transitions; forces arise from MuJoCo contact friction, not direct body kicks.",
         },
         "belt_stop_observation": {
-            "enabled": config.belt_stop_enabled,
+            "enabled": config.observe_exit_stop,
             "trigger": "after transport measurement at the virtual exit; drop trials only",
             "ramp_s": config.belt_stop_ramp_s,
             "observation_s_after_stop": config.belt_stop_observation_s,
@@ -444,6 +458,8 @@ def run_experiment(
                 "match_distance_deg": match.distance_deg if match else None,
                 "pose_key": None,
             })
+            if not config.group_poses:
+                row["pose_key"] = _pose_key(row, group_poses=False)
             rows.append(row)
             stream.write(json.dumps(row, ensure_ascii=False) + "\n")
             stream.flush()
@@ -451,7 +467,7 @@ def run_experiment(
                   "trial": outcome.trial, "status": outcome.status,
                   "roadmap_pose_id": row["roadmap_pose_id"],
                   "record": {key: row[key] for key in (
-                      "trial", "seed", "status", "match_status", "roadmap_pose_id",
+                       "trial", "seed", "status", "pose_key", "match_status", "roadmap_pose_id",
                       "match_distance_deg", "sim_time_s", "travel_mm", "first_settled_s",
                       "final_pos_chute_mm", "final_quat_xyzw", "final_floor_contact",
                       "final_wall_contact",
@@ -493,9 +509,10 @@ def run_experiment(
                 record_drop(outcome)
 
     rows.sort(key=lambda row: row["trial"])
-    _assign_unknown_clusters(rows, resolver)
+    if config.group_poses:
+        _assign_unknown_clusters(rows, resolver)
     for row in rows:
-        row["pose_key"] = _pose_key(row)
+        row["pose_key"] = _pose_key(row, group_poses=config.group_poses)
     _write_jsonl(run_dir / "trials.jsonl", rows)
     _write_csv(run_dir / "trials.csv", [
         "trial", "seed", "status", "pose_key", "match_status", "roadmap_pose_id",
@@ -515,7 +532,9 @@ def run_experiment(
         "initial_belt_speed_mm_s", "final_belt_speed_mm_s", "coast_distance_mm", "orientation_change_deg",
         "final_quat_xyzw", "final_pos_chute_mm", "final_qpos", "final_floor_contact", "final_wall_contact",
     ], stop_rows)
-    frequencies = _frequency_rows(rows, len(rows), resolver.known_pose_ids) if rows else []
+    known_pose_ids = resolver.known_pose_ids if config.group_poses else ()
+    frequencies = (_frequency_rows(rows, len(rows), known_pose_ids, group_poses=config.group_poses)
+                   if rows else [])
     example_by_key = {row["pose_key"]: row for row in rows
                       if row["status"] in SETTLED_STATUSES and row["pose_key"] != "ambiguous"}
     for frequency in frequencies:
@@ -525,13 +544,17 @@ def run_experiment(
             frequency["representative_quat_xyzw"] = example["final_quat_xyzw"]
             frequency["representative_pos_chute_mm"] = example["final_pos_chute_mm"]
             frequency["representative_source"] = "observed"
-        elif key in {str(pose_id) for pose_id in resolver.known_pose_ids}:
+            if not config.group_poses:
+                frequency["roadmap_pose_id"] = example["roadmap_pose_id"]
+                frequency["match_status"] = example["match_status"]
+        elif key in {str(pose_id) for pose_id in known_pose_ids}:
             frequency["representative_quat_xyzw"] = resolver.reference_quaternion(int(key))
             frequency["representative_pos_chute_mm"] = None
             frequency["representative_source"] = "catalogue"
     _write_csv(run_dir / "frequencies.csv", [
         "pose_id", "category", "count", "probability", "ci_low", "ci_high",
         "representative_quat_xyzw", "representative_pos_chute_mm", "representative_source",
+        *([] if config.group_poses else ["roadmap_pose_id", "match_status"]),
     ], frequencies)
     for frequency in frequencies:
         emit({"event": "result", **frequency})
@@ -582,11 +605,13 @@ def run_experiment(
         "requested_trials": config.trials,
         "completed_trials": len(rows),
         "cancelled": bool(cancel()),
+        "group_poses": config.group_poses,
+        "belt_mode": config.belt_mode,
         "pose_frequencies": frequencies,
         "status_counts": dict(Counter(row["status"] for row in rows)),
         "settled_trials": sum(row["status"] in SETTLED_STATUSES for row in rows),
         "belt_stop_observation": {
-            "enabled": config.belt_stop_enabled,
+            "enabled": config.observe_exit_stop,
             "observed_trials": len(stop_rows),
             "status_counts": dict(Counter(row["status"] for row in stop_rows)),
             "unsettled_transport_then_settled": sum(row["transport_status"] == "unsettled" and row["status"] == "settled" for row in stop_rows),

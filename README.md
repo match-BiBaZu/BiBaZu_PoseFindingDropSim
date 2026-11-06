@@ -36,7 +36,7 @@ Knopfs gespeichert. Unter Windows liegt die Datei unter
 `~/.config/dashas-drop-sim/gui_defaults.json`.
 
 Die vollständigen aktuellen GUI-Vorgaben sind außerdem im Repository unter
-`src/dashas_drop_sim/assets/gui_defaults.json` versioniert: alle 40 Parameter,
+`src/dashas_drop_sim/assets/gui_defaults.json` versioniert: alle GUI-Parameter,
 einschließlich Dämpfung 0,19, 500 mm Strecke, Einzelimpulsen während der ersten
 Sekunde und Ruheprüfung nach Bandstopp. Ohne eigene gespeicherte Einstellungen
 verwendet die GUI diese Werte (100 Versuche, vier Prozesse). Explizit gespeicherte
@@ -184,7 +184,22 @@ Wird ohne das optionale `roadmap`-Paket installiert, stehen auch für unbekannte
 Gruppen keine erkannten Bauteilsymmetrien zur Verfügung; dies wird im Manifest
 als `symmetry_available: false` ausgewiesen.
 
-Die Bereiche der GUI sind 0–200 mm/s Bandgeschwindigkeit, 0–200 mm
+**Bandbetrieb** wählt **Laufend** oder **Stillstehend ab Abwurf**. Bei
+stillstehendem Band bleiben die Einstellungen für Geschwindigkeit und
+Schwankung gespeichert. Das Band bleibt während des gesamten Versuchs auf
+0 mm/s. Die Auswertung erfolgt nach 10 s und prüft im letzten halben
+Sekundenfenster auch die Längsbewegung. Die separate Bremsprüfung am
+Streckenende steht im laufenden Betrieb zur Verfügung. In JSON heißt die
+Option `belt_mode` und akzeptiert `running` oder `stopped`. Ältere
+Konfigurationen verwenden weiterhin den geschwindigkeitsbasierten Modus `auto`.
+
+Mit **Posen gruppieren** werden eingependelte Lagen wie bisher zusammengefasst.
+Ohne Gruppierung erhält jeder eingependelte Abwurf eine eigene Zeile, Ansicht
+und ID `trial_NNN` mit nullbasiertem Versuchsindex. Roadmap-Treffer bleiben als
+Referenz gespeichert. Der Posenkatalog und die Neunummerierung von Roadmaps
+benötigen gruppierte Ergebnisse. In JSON heißt die Option `group_poses`.
+
+Die Bereiche der GUI sind 0,1–200 mm/s für das laufende Band, 0–200 mm
 Abwurfhöhe und ±100 mm Querposition, gemessen von der Winkelhalbierenden
 zwischen Band und Wand. Bei 0 mm/s endet die Beobachtung nach einer festen
 Zeit statt an einem Streckenende. Die genannten Dichte- und Reibwerte sind

@@ -190,7 +190,16 @@ class DropSimulationWindow(QMainWindow):
         self.seed_spin.setRange(0, 2_147_483_647)
         self.seed_spin.setValue(int(_default("seed", 0)))
         form.addRow("Zufalls-Seed", self.seed_spin)
-        self.belt_spin = _spin(_default("belt_speed_mm_s", 100), 0, 200)
+        self.belt_mode_combo = QComboBox()
+        self.belt_mode_combo.addItem("Laufend", "running")
+        self.belt_mode_combo.addItem("Stillstehend ab Abwurf", "stopped")
+        self.belt_mode_combo.setCurrentIndex(self.belt_mode_combo.findData(_default("belt_mode", "running")))
+        form.addRow("Bandbetrieb", self.belt_mode_combo)
+        self.group_poses_check = QCheckBox("Posen gruppieren")
+        self.group_poses_check.setChecked(bool(_default("group_poses", True)))
+        self.group_poses_check.setToolTip("Ohne Gruppierung erhält jeder eingependelte Abwurf eine eigene Pose.")
+        form.addRow(self.group_poses_check)
+        self.belt_spin = _spin(_default("belt_speed_mm_s", 100), 0.1, 200)
         self.belt_spin.setSuffix(" mm/s")
         form.addRow("Bandgeschwindigkeit", self.belt_spin)
         self.belt_variation_spin = _spin(_default("belt_speed_variation_mm_s", 0), 0, 20, 2, 0.5)
@@ -219,9 +228,9 @@ class DropSimulationWindow(QMainWindow):
         self.belt_stop_wait_spin.setSuffix(" s")
         form.addRow("Bremsdauer Band", self.belt_stop_ramp_spin)
         form.addRow("Beobachtung nach Stillstand", self.belt_stop_wait_spin)
-        for widget in (self.belt_stop_ramp_spin, self.belt_stop_wait_spin):
-            widget.setEnabled(self.belt_stop_check.isChecked())
-            self.belt_stop_check.toggled.connect(widget.setEnabled)
+        self.belt_mode_combo.currentIndexChanged.connect(self._update_belt_controls)
+        self.belt_stop_check.toggled.connect(self._update_belt_controls)
+        self._update_belt_controls()
         self.height_spin = _spin(_default("drop_height_mm", 100), 0, 200)
         self.height_spin.setSuffix(" mm")
         self.height_spread_spin = _spin(_default("drop_height_spread_mm", 0), 0, 100)
@@ -406,6 +415,9 @@ class DropSimulationWindow(QMainWindow):
         export_note.setWordWrap(True)
         export_form.addRow(export_note)
         layout.addWidget(self.catalog_export_group)
+        self.catalog_export_group.setToolTip("Der Katalogexport benötigt gruppierte Posen.")
+        self.catalog_export_group.setEnabled(self.group_poses_check.isChecked())
+        self.group_poses_check.toggled.connect(self.catalog_export_group.setEnabled)
 
         controls = QHBoxLayout()
         self.start_button = QPushButton("Simulation starten")
@@ -639,7 +651,8 @@ class DropSimulationWindow(QMainWindow):
         self.preview_button.setEnabled(not busy)
         self.reindex_button.setEnabled(not busy)
         self.save_defaults_button.setEnabled(not busy)
-        self.catalog_export_group.setEnabled(not busy)
+        self.group_poses_check.setEnabled(not busy)
+        self.catalog_export_group.setEnabled(not busy and self.group_poses_check.isChecked())
         self.batch_start_button.setEnabled(not busy and self.batch_table.rowCount() > 0)
         self.cancel_button.setEnabled(busy)
         self.batch_table.setEnabled(not busy)
@@ -746,6 +759,13 @@ class DropSimulationWindow(QMainWindow):
             **self.roughness_spins,
         }
 
+    def _update_belt_controls(self, *_args: Any) -> None:
+        running = self.belt_mode_combo.currentData() == "running"
+        for widget in (self.belt_spin, self.belt_variation_spin, self.belt_interval_spin, self.belt_stop_check):
+            widget.setEnabled(running)
+        for widget in (self.belt_stop_ramp_spin, self.belt_stop_wait_spin):
+            widget.setEnabled(running and self.belt_stop_check.isChecked())
+
     def _update_roughness_controls(self, *_args) -> None:
         enabled = self.roughness_check.isChecked()
         mode = self.roughness_model_combo.currentData()
@@ -805,6 +825,8 @@ class DropSimulationWindow(QMainWindow):
         values = {name: widget.value() for name, widget in self._parameter_widgets().items()}
         values["roughness_force_fraction"] /= 100
         return {**values,
+                "belt_mode": self.belt_mode_combo.currentData(),
+                "group_poses": self.group_poses_check.isChecked(),
                 "compute_stability": self.compute_stability_check.isChecked(),
                 "catalog_push": self.catalog_push_check.isChecked(),
                 "roughness_enabled": self.roughness_check.isChecked(),
@@ -838,7 +860,15 @@ class DropSimulationWindow(QMainWindow):
         parameters = data["parameters"]
         for name, widget in self._parameter_widgets().items():
             if name in parameters:
+                if name == "belt_speed_mm_s" and parameters[name] == 0:
+                    continue  # Retain a valid running preset when loading a legacy stationary setup.
                 widget.setValue(parameters[name] * (100 if name == "roughness_force_fraction" else 1))
+        belt_mode = parameters.get("belt_mode", "auto")
+        if belt_mode == "auto":
+            belt_mode = "stopped" if parameters.get("belt_speed_mm_s") == 0 else "running"
+        self.belt_mode_combo.setCurrentIndex(self.belt_mode_combo.findData(belt_mode))
+        if "group_poses" in parameters:
+            self.group_poses_check.setChecked(parameters["group_poses"])
         if "roughness_enabled" in parameters:
             self.roughness_check.setChecked(parameters["roughness_enabled"])
         if "belt_stop_enabled" in parameters:
@@ -869,6 +899,7 @@ class DropSimulationWindow(QMainWindow):
             raise ValueError("Bitte ein STL- oder STEP-Bauteil wählen.")
         if not output:
             raise ValueError("Bitte einen Ergebnisordner wählen.")
+        export_catalog = self.group_poses_check.isChecked() and self.catalog_export_check.isChecked()
         config = RunConfig(
             mesh_path=Path(mesh).expanduser().resolve(),
             roadmap_path=workpiece.roadmap_path if workpiece else (
@@ -877,13 +908,13 @@ class DropSimulationWindow(QMainWindow):
             ),
             output_dir=Path(output).expanduser().resolve(),
             catalog_repo=Path(self.catalog_repo_edit.text()).expanduser().resolve()
-                if self.catalog_export_check.isChecked() and self.catalog_repo_edit.text().strip() else None,
+                if export_catalog and self.catalog_repo_edit.text().strip() else None,
             catalog_cad_dir=Path(self.catalog_cad_edit.text()).expanduser().resolve()
                 if self.catalog_cad_edit.text().strip() else None,
             **self._parameter_values(),
         )
         config.validate()
-        if self.catalog_export_check.isChecked() and config.catalog_repo is None:
+        if export_catalog and config.catalog_repo is None:
             raise ValueError("Bitte ein Ergebnis-Repo wählen.")
         return config
 
@@ -1378,6 +1409,7 @@ class DropSimulationWindow(QMainWindow):
         fields = (
             ("Versuch", data["trial"] + 1 if isinstance(data.get("trial"), int) else None),
             ("Status", data.get("status")),
+            *([("Einzelpose", data["pose_key"])] if str(data.get("pose_key")).startswith("trial_") else []),
             ("Roadmap-Pose", data.get("roadmap_pose_id")),
             ("Zuordnung", data.get("match_status")),
             ("Abstand zur Roadmap-Pose (°)", data.get("match_distance_deg")),
@@ -1498,6 +1530,8 @@ class DropSimulationWindow(QMainWindow):
                 item = QTableWidgetItem(str(value))
                 if column:
                     item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                elif row.get("roadmap_pose_id") not in (None, ""):
+                    item.setToolTip(f"Roadmap-Pose: {row['roadmap_pose_id']}")
                 self.result_table.setItem(index, column, item)
             button = QPushButton("Bild")
             button.setEnabled(bool(row.get("representative_quat_xyzw")) and self._run_dir is not None)
@@ -1508,8 +1542,9 @@ class DropSimulationWindow(QMainWindow):
         if self._preview_record is None:
             return
         record = self._preview_record
+        pose_id = record.get("pose_key") or record.get("roadmap_pose_id")
         self._show_pose({
-            "pose_id": record.get("roadmap_pose_id") or "Versuch",
+            "pose_id": pose_id if pose_id is not None else "Versuch",
             "representative_quat_xyzw": record.get("final_quat_xyzw"),
             "representative_pos_chute_mm": record.get("final_pos_chute_mm"),
             "representative_source": "observed",
