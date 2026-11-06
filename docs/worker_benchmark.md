@@ -1,37 +1,23 @@
-# Prozessvergleich vom 4. Oktober 2026
+# Worker process benchmark
 
-Rechner: Intel Core i9-13900E, 24 Kerne / 24 logische Prozessoren.
-Werkstück: Dk2a. Physikparameter: `configs/catalog39.json`.
-Der 39er-Gesamtlauf war für den Vergleich angehalten.
+On 4 October 2026, the Dk2a benchmark ran on an Intel Core i9-13900E system with 24 cores and 24 logical processors reported. It used the physics settings in `configs/catalog39.json`. The 39-workpiece batch was paused during the benchmark.
 
-Je Einstellung wurden zweimal dieselben 384 Abwürfe gerechnet; im zweiten
-Durchgang war die Reihenfolge umgekehrt. Die Geometrie war bereits vorbereitet.
-Die Zeit enthält Start und Beenden der Worker. Die vollständigen sortierten
-Versuchsergebnisse einschließlich Impulsereignissen wurden per SHA-256 verglichen.
+Each worker count ran the same 384 drops twice, with the order of worker counts reversed for the second repeat. The geometry was prepared before timing. Elapsed time includes worker startup and shutdown. SHA-256 checks compared the complete sorted trial records, including impulse events.
 
-| Prozesse | Median für 384 Abwürfe | Ergebnisvergleich |
+| Workers | Median time for 384 drops | Trial records |
 | ---: | ---: | --- |
-| 8 | 34,50 s | exakt identisch |
-| 12 | 36,95 s | exakt identisch |
-| 16 | 38,80 s | exakt identisch |
+| 8 | 34.50 s | Identical |
+| 12 | 36.95 s | Identical |
+| 16 | 38.80 s | Identical |
 
-Alle sechs Läufe enthielten 384 vollständige, numerisch gültige Ergebnisse.
-8 Prozesse waren bei dieser Messung am schnellsten; der Gesamtlauf bleibt daher
-bei 8 Prozessen. Die Werte sind ein Vergleich für Dk2a unter dem aktuellen
-Rechnerbetrieb, keine allgemeine Aussage über alle Bauteile und Rechner.
+All six runs produced 384 complete, numerically valid results. Eight workers were fastest for Dk2a on this machine and were retained for the full batch. The timing applies to this workpiece and machine under the recorded conditions.
 
-Ein vorausgegangener kürzerer Vergleich mit 96 Abwürfen scheiterte bei
-24 Prozessen während der Worker-Initialisierung mit MuJoCos Meldung
-`Could not allocate memory` und anschließend `BrokenProcessPool`.
-Diese Einstellung wird für den Gesamtlauf nicht verwendet.
+In an earlier 96-drop comparison, the 24-worker run failed during initialization. MuJoCo reported `Could not allocate memory`, followed by `BrokenProcessPool`.
 
-Wiederholbarer Aufruf:
+Run this command from the repository root to repeat the comparison.
 
 ```powershell
 uv run --all-extras python -m dashas_drop_sim.benchmark --config configs/catalog39.json --workpiece Dk2a --trials 384 --workers 8 12 16 --repeats 2 --output results/worker_benchmark_long.json
 ```
 
-Das Werkzeug dokumentiert auch fehlgeschlagene Prozesszahlen. Eine Empfehlung
-setzt gültige, identische Ergebnisse voraus; bei höchstens 5 % Zeitunterschied
-wird die kleinere Prozesszahl bevorzugt. Die Einstellung der eigentlichen
-Falltests wird dadurch nicht automatisch verändert.
+The benchmark records failed worker counts and recommends a setting only when results are valid and identical. When timings differ by at most 5%, it prefers the smaller worker count. Apply the recommendation explicitly to the drop-test configuration.
