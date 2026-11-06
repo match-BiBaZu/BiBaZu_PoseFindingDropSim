@@ -6,7 +6,7 @@ Reproducible workpiece drop simulation for the BiBaZu L-shaped chute. Dashas Dro
 >
 > Add a MuJoCo screenshot showing the workpiece, PE conveyor belt, PTFE side wall, and observation line. Label the belt direction and the axes pointing away from the wall and belt. Suggested file `docs/images/chute-overview.png`.
 
-[Detailed German user guide](README.de.md)
+[Detailed user guide](USER_GUIDE.md) · [Windows launcher](WindowsLaunchers/README.md)
 
 ## Simulation protocol
 
