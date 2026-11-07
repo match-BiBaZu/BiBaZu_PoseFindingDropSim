@@ -110,6 +110,8 @@ The release height and lateral position each have an optional uniform spread. Fo
 
 ## Contact disturbances and solver settings
 
+Fresh GUI settings, the `gui-current` profile, and omitted CLI friction values use belt friction **0.10** and wall friction **0.05**. Grouping is enabled by default. Explicit historical values and saved preferences are preserved. Grouped exports add `group_id` to trials and frequencies while retaining `pose_key` / `pose_id`. IDs start at 0, ordered by descending observed count, then the native key for ties. `groups.json` records each group's full trial membership. Unsettled and ambiguous outcomes have no group ID. No additional simulation or catalogue generation is needed to assign these IDs.
+
 **Zufällige Kontaktstörungen** enables a statistical model of surface irregularities. The PTFE wall starts with a 0.1 mm maximum effective height, 3 mm effective edge length, and 10 mm mean spacing. The belt starts with zero effective height and has separate settings. The GUI defaults to single impulses with a free-body velocity change of 49.05 mm/s, a mean event interval of 0.2 s, and a one-second excitation window. Older CLI configurations with omitted disturbance fields keep disturbances disabled. When enabled, the selected model applies to drops and the optional disturbance tests.
 
 ### Finite force pulses

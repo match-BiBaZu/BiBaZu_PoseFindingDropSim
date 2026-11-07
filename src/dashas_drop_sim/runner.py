@@ -131,6 +131,26 @@ def _assign_unknown_clusters(rows: list[dict[str, Any]], resolver: PoseResolver)
         row["pose_key"] = f"unknown_{label + 1:03d}"
 
 
+def _assign_group_ids(rows: list[dict[str, Any]], *, group_poses: bool) -> list[dict[str, Any]]:
+    """Add frequency-ranked display IDs without changing the native pose keys.
+
+    Only observed, unambiguous settled poses form groups. The key is the
+    deterministic tie breaker, just as it is in the frequency table.
+    """
+    members: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        row["group_id"] = None
+        if group_poses and row["status"] in SETTLED_STATUSES and row["pose_key"] != "ambiguous":
+            members.setdefault(row["pose_key"], []).append(row)
+    groups = []
+    for group_id, (key, trials) in enumerate(sorted(members.items(), key=lambda item: (-len(item[1]), item[0]))):
+        for row in trials:
+            row["group_id"] = group_id
+        groups.append({"group_id": group_id, "pose_key": key, "count": len(trials),
+                       "member_trial_ids": sorted(row["trial"] for row in trials)})
+    return groups
+
+
 def _frequency_rows(rows: list[dict[str, Any]], total: int,
                     known_pose_ids: tuple[int, ...] = (), *,
                     group_poses: bool = True) -> list[dict[str, Any]]:
@@ -149,6 +169,7 @@ def _frequency_rows(rows: list[dict[str, Any]], total: int,
         source = first.get(key)
         result.append({
             "pose_id": key,
+            "group_id": source.get("group_id") if source is not None else None,
             "category": "pose" if key in known_keys
             or (source is not None and source["status"] in SETTLED_STATUSES and key != "ambiguous")
             else "unassigned",
@@ -316,6 +337,7 @@ def build_manifest(config: RunConfig, part: PreparedPart, resolver: PoseResolver
         "classification_ambiguity_margin_deg": resolver.ambiguity_margin_deg,
         "unknown_cluster_tolerance_deg": resolver.cluster_tolerance_deg,
         "group_poses": config.group_poses,
+        "group_ordering": "frequency_descending_then_pose_key" if config.group_poses else None,
         "belt_mode": config.belt_mode,
         "friction_cone": config.friction_cone,
         "effective_belt_speed_mm_s": config.effective_belt_speed_mm_s,
@@ -515,9 +537,15 @@ def run_experiment(
         _assign_unknown_clusters(rows, resolver)
     for row in rows:
         row["pose_key"] = _pose_key(row, group_poses=config.group_poses)
+    groups = _assign_group_ids(rows, group_poses=config.group_poses)
+    if config.group_poses:
+        _write_json(run_dir / "groups.json", {
+            "schema_version": 1, "ordering": "frequency_descending_then_pose_key",
+            "groups": groups,
+        })
     _write_jsonl(run_dir / "trials.jsonl", rows)
     _write_csv(run_dir / "trials.csv", [
-        "trial", "seed", "status", "pose_key", "match_status", "roadmap_pose_id",
+        "trial", "seed", "status", "pose_key", "group_id", "match_status", "roadmap_pose_id",
         "match_distance_deg", "initial_quat_xyzw", "final_quat_xyzw", "final_pos_chute_mm",
         "sim_time_s", "travel_mm", "first_settled_s", "final_floor_contact",
         "final_wall_contact", "final_qpos",
@@ -554,7 +582,7 @@ def run_experiment(
             frequency["representative_pos_chute_mm"] = None
             frequency["representative_source"] = "catalogue"
     _write_csv(run_dir / "frequencies.csv", [
-        "pose_id", "category", "count", "probability", "ci_low", "ci_high",
+        "pose_id", "group_id", "category", "count", "probability", "ci_low", "ci_high",
         "representative_quat_xyzw", "representative_pos_chute_mm", "representative_source",
         *([] if config.group_poses else ["roadmap_pose_id", "match_status"]),
     ], frequencies)
@@ -609,6 +637,8 @@ def run_experiment(
         "completed_trials": len(rows),
         "cancelled": bool(cancel()),
         "group_poses": config.group_poses,
+        "group_ordering": "frequency_descending_then_pose_key" if config.group_poses else None,
+        "observed_groups": len(groups),
         "belt_mode": config.belt_mode,
         "pose_frequencies": frequencies,
         "status_counts": dict(Counter(row["status"] for row in rows)),

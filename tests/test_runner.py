@@ -17,6 +17,7 @@ from dashas_drop_sim.cli import _config
 from dashas_drop_sim.config import RunConfig
 from dashas_drop_sim.pose_matching import PoseMatch
 from dashas_drop_sim.runner import (
+    _assign_group_ids,
     _assign_unknown_clusters,
     _frequency_rows,
     _same_pose,
@@ -75,6 +76,7 @@ def test_short_real_cube_run_persists_unknown_pose_and_outputs(cube: Path) -> No
         "frequencies.csv", "disturbances.csv", "stability.csv",
         "stability_summary.csv", "summary.json",
         "roughness_events.csv", "roughness_events.jsonl",
+        "groups.json",
     ):
         assert (run_dir / filename).is_file(), filename
 
@@ -85,11 +87,17 @@ def test_short_real_cube_run_persists_unknown_pose_and_outputs(cube: Path) -> No
     assert trial_csv[0]["match_status"] == trial_jsonl[0]["match_status"] == "unmatched"
     assert trial_csv[0]["pose_key"] == trial_jsonl[0]["pose_key"] == "unknown_001"
     assert trial_jsonl[0]["roadmap_pose_id"] is None
+    assert trial_jsonl[0]["group_id"] == 0
+    assert trial_csv[0]["group_id"] == "0"
+    membership = json.loads((run_dir / "groups.json").read_text())
+    assert membership["groups"] == [{"group_id": 0, "pose_key": "unknown_001", "count": 1,
+                                      "member_trial_ids": [0]}]
 
     frequencies = _csv_rows(run_dir / "frequencies.csv")
     assert len(frequencies) == 1
     assert frequencies[0]["pose_id"] == "unknown_001"
     assert int(frequencies[0]["count"]) == 1
+    assert frequencies[0]["group_id"] == "0"
     assert float(frequencies[0]["probability"]) == 1
     assert result.summary["completed_trials"] == result.summary["settled_trials"] == 1
     assert result.summary["pose_frequencies"][0]["pose_id"] == "unknown_001"
@@ -118,6 +126,34 @@ def test_ungrouped_trials_keep_separate_poses_with_the_same_roadmap_id(cube, mon
         ("trial_000", 1), ("trial_001", 1),
     ]
     assert all(row["representative_quat_xyzw"] for row in result.summary["pose_frequencies"])
+    assert all(row["group_id"] == "" for row in trials)
+    assert not (result.run_dir / "groups.json").exists()
+
+
+def test_frequency_group_ids_preserve_keys_and_account_for_every_member():
+    rows = [
+        {"trial": i, "status": status, "pose_key": key, "match_status": "unmatched"}
+        for i, (status, key) in enumerate([
+            ("settled", "z"), ("settled_stationary", "a"), ("settled", "z"),
+            ("settled", "b"), ("settled", "ambiguous"), ("unsettled", "unsettled"),
+        ])
+    ]
+    original = [dict(row) for row in rows]
+    groups = _assign_group_ids(rows, group_poses=True)
+    assert [(g["group_id"], g["pose_key"], g["member_trial_ids"]) for g in groups] == [
+        (0, "z", [0, 2]), (1, "a", [1]), (2, "b", [3]),
+    ]
+    assert [r["group_id"] for r in rows] == [0, 1, 0, 2, None, None]
+    assert [{k: v for k, v in r.items() if k != "group_id"} for r in rows] == original
+    assert json.loads(json.dumps(groups)) == groups
+    # Input completion order must not affect ties or membership serialization.
+    assert _assign_group_ids(list(reversed(rows)), group_poses=True) == groups
+    frequencies = _frequency_rows(rows, len(rows))
+    assert {r["pose_id"]: r["group_id"] for r in frequencies} == {
+        "z": 0, "a": 1, "b": 2, "ambiguous": None, "unsettled": None,
+    }
+    assert _assign_group_ids(rows, group_poses=False) == []
+    assert all(r["group_id"] is None for r in rows)
 
 
 def test_same_seed_repeats_release_and_end_state(cube: Path) -> None:
@@ -386,7 +422,7 @@ def test_unsettled_trial_is_counted_without_pose_assignment() -> None:
     frequencies = _frequency_rows([row], total=1)
     assert row["pose_key"] is None
     assert frequencies == [{
-        "pose_id": "unsettled", "category": "unassigned", "count": 1,
+        "pose_id": "unsettled", "group_id": None, "category": "unassigned", "count": 1,
         "probability": 1.0, "ci_low": pytest.approx(0.20654931437723745),
         "ci_high": 1.0,
     }]

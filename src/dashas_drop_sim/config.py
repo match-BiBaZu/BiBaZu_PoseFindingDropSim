@@ -31,8 +31,8 @@ class RunConfig:
     lateral_mm: float = 0.0
     lateral_spread_mm: float = 0.0
     density_g_cm3: float = 1.15
-    mu_belt: float = 0.40
-    mu_wall: float = 0.20
+    mu_belt: float = 0.10
+    mu_wall: float = 0.05
     alpha_deg: float = 45.0
     beta_deg: float = 0.0
     length_mm: float = 1300.0
