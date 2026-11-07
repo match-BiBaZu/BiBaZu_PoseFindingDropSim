@@ -61,8 +61,9 @@ def test_portable_profiles_preserve_all_physics_and_run_sizes(name, part, trials
     assert config.trials == trials and config.workers == workers
     assert config.catalog_push is push
     current = _config(CONFIGS / "gui-current.json").to_dict()
-    for key in PARAMETER_KEYS - {"trials", "workers", "catalog_push"}:
+    for key in PARAMETER_KEYS - {"trials", "workers", "catalog_push", "friction_cone"}:
         assert config.to_dict()[key] == current[key], key
+    assert config.friction_cone == ("elliptic" if name == "gui-current.json" else "pyramidal")
     assert config.contact_damping_ratio == 0.19
     assert config.roughness_active_duration_s == 1
     assert config.belt_stop_enabled and config.belt_stop_ramp_s == 0.2

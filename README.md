@@ -8,6 +8,8 @@ Reproducible workpiece drop simulation for the BiBaZu L-shaped chute. Dashas Dro
 
 [Detailed user guide](USER_GUIDE.md) · [Windows launcher](WindowsLaunchers/README.md)
 
+The GUI provides a saved **Friction cone** selector. Fresh settings and `configs/gui-current.json` use elliptic cones. The paired reference batch documented below used pyramidal cones at the pinned revision. Use `"friction_cone": "elliptic"` in a current CLI configuration for elliptic-cone experiments.
+
 ## Simulation protocol
 
 Each trial drops a single rigid workpiece in a uniformly sampled 3D orientation. The model derives mass, center of mass, and inertia from a closed mesh and a uniform material density. CoACD decomposes concave meshes into convex collision bodies. The paired reference batch covers **39 workpieces × 100 drops × 2 belt conditions**, with the same trial seed and release inputs used in both conditions for each workpiece.

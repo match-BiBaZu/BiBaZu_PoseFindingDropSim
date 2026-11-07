@@ -58,6 +58,7 @@ class RunConfig:
     disturbance_levels_mm: tuple[float, ...] = (0.0, 0.05, 0.1, 0.2, 0.4, 0.8)
     belt_mode: str = "auto"
     group_poses: bool = True
+    friction_cone: str = "pyramidal"
 
     @property
     def effective_belt_speed_mm_s(self) -> float:
@@ -110,6 +111,8 @@ class RunConfig:
             raise ValueError("Running belt mode requires a positive belt speed.")
         if not isinstance(self.group_poses, bool):
             raise ValueError("group_poses must be true or false")
+        if self.friction_cone not in ("pyramidal", "elliptic"):
+            raise ValueError("friction_cone must be pyramidal or elliptic")
         if self.roughness_model not in {"longitudinal_traction", "microfacet", "weight_force", "weight_impulse"}:
             raise ValueError("roughness_model must be longitudinal_traction, microfacet, weight_force or weight_impulse")
         bounds = (

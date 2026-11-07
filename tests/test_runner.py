@@ -132,12 +132,15 @@ def test_same_seed_repeats_release_and_end_state(cube: Path) -> None:
     assert first.summary["pose_frequencies"] == second.summary["pose_frequencies"]
 
 
+@pytest.mark.parametrize("friction_cone", ["pyramidal", "elliptic"])
 @pytest.mark.parametrize("roughness_enabled,roughness_model", [(False, "longitudinal_traction"),
                         (True, "longitudinal_traction"), (True, "weight_force"), (True, "weight_impulse")])
-def test_parallel_drops_match_serial_seeded_results(cube: Path, roughness_enabled: bool, roughness_model: str) -> None:
+def test_parallel_drops_match_serial_seeded_results(cube: Path, roughness_enabled: bool,
+                                                   roughness_model: str, friction_cone: str) -> None:
     serial_config = _short_config(cube, output_dir=cube.parent / "serial")
     serial_config.trials = 2
     serial_config.workers = 1
+    serial_config.friction_cone = friction_cone
     serial_config.roughness_enabled = roughness_enabled
     serial_config.roughness_model = roughness_model
     serial_config.belt_speed_variation_mm_s = 3
@@ -147,6 +150,7 @@ def test_parallel_drops_match_serial_seeded_results(cube: Path, roughness_enable
     parallel_config = _short_config(cube, output_dir=cube.parent / "parallel")
     parallel_config.trials = 2
     parallel_config.workers = 2
+    parallel_config.friction_cone = friction_cone
     parallel_config.roughness_enabled = roughness_enabled
     parallel_config.roughness_model = roughness_model
     parallel_config.belt_speed_variation_mm_s = 3
@@ -173,6 +177,7 @@ def test_parallel_drops_match_serial_seeded_results(cube: Path, roughness_enable
     trial_csv = _csv_rows(serial.run_dir / "trials.csv")
     assert float(trial_csv[0]["actual_drop_height_mm"]) == serial_rows[0]["actual_drop_height_mm"]
     manifest = json.loads((serial.run_dir / "manifest.json").read_text())
+    assert manifest["friction_cone"] == friction_cone
     assert manifest["release_distribution"]["drop_height_range_mm"] == [10, 30]
     assert manifest["belt_speed_variation"]["speed_range_mm_s"] == [97, 103]
     assert json.loads(trial_csv[0]["belt_speed_control_points"]) == serial_rows[0]["belt_speed_control_points"]

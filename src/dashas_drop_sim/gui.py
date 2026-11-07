@@ -357,6 +357,12 @@ class DropSimulationWindow(QMainWindow):
 
         advanced = QGroupBox("Erweiterte Simulationsparameter")
         advanced_form = QFormLayout(advanced)
+        self.friction_cone_combo = QComboBox()
+        self.friction_cone_combo.addItem("Elliptic", "elliptic")
+        self.friction_cone_combo.addItem("Pyramidal", "pyramidal")
+        self.friction_cone_combo.setCurrentIndex(
+            self.friction_cone_combo.findData(_default("friction_cone", "elliptic")))
+        advanced_form.addRow("Friction cone", self.friction_cone_combo)
         self.alpha_spin = _spin(_default("alpha_deg", 45), 0, 90, 1)
         self.alpha_spin.setSuffix(" °")
         advanced_form.addRow("Querneigung", self.alpha_spin)
@@ -827,6 +833,7 @@ class DropSimulationWindow(QMainWindow):
         return {**values,
                 "belt_mode": self.belt_mode_combo.currentData(),
                 "group_poses": self.group_poses_check.isChecked(),
+                "friction_cone": self.friction_cone_combo.currentData(),
                 "compute_stability": self.compute_stability_check.isChecked(),
                 "catalog_push": self.catalog_push_check.isChecked(),
                 "roughness_enabled": self.roughness_check.isChecked(),
@@ -858,6 +865,8 @@ class DropSimulationWindow(QMainWindow):
         if data is None:
             return
         parameters = data["parameters"]
+        self.friction_cone_combo.setCurrentIndex(
+            self.friction_cone_combo.findData(parameters.get("friction_cone", "pyramidal")))
         for name, widget in self._parameter_widgets().items():
             if name in parameters:
                 if name == "belt_speed_mm_s" and parameters[name] == 0:

@@ -4,6 +4,7 @@
     "trials": 100,
     "workers": 4,
     "seed": 42,
+    "friction_cone": "elliptic",
     "belt_mode": "running",
     "group_poses": true,
     "belt_speed_mm_s": 100.0,

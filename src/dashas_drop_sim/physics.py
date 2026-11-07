@@ -102,6 +102,7 @@ class ChuteSimulator:
             solver="Newton",
             iterations="100",
             tolerance="1e-9",
+            cone=cfg.friction_cone,
         )
         assets = ET.SubElement(root, "asset")
         files = [part.visual_mesh_path, *part.collision_mesh_paths]

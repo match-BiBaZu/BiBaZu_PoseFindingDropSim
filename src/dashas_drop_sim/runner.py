@@ -317,6 +317,7 @@ def build_manifest(config: RunConfig, part: PreparedPart, resolver: PoseResolver
         "unknown_cluster_tolerance_deg": resolver.cluster_tolerance_deg,
         "group_poses": config.group_poses,
         "belt_mode": config.belt_mode,
+        "friction_cone": config.friction_cone,
         "effective_belt_speed_mm_s": config.effective_belt_speed_mm_s,
         "release_distribution": {
             "type": "independent_uniform_center_plus_minus_spread",
@@ -326,6 +327,7 @@ def build_manifest(config: RunConfig, part: PreparedPart, resolver: PoseResolver
                                  config.lateral_mm + config.lateral_spread_mm],
         },
         "contact_response": {
+            "friction_cone": config.friction_cone,
             "model": "mujoco_positive_solref_time_constant_damping_ratio",
             "time_constant_s": config.contact_time_constant_s,
             "damping_ratio": config.contact_damping_ratio,
@@ -603,6 +605,7 @@ def run_experiment(
     _write_csv(run_dir / "stability_summary.csv", ["pose_id", "retention_auc", "complete", "rank"], ranking)
     summary = {
         "requested_trials": config.trials,
+        "friction_cone": config.friction_cone,
         "completed_trials": len(rows),
         "cancelled": bool(cancel()),
         "group_poses": config.group_poses,

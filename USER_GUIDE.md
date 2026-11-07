@@ -160,6 +160,8 @@ Use `0` or **Ganzer Lauf** for excitation throughout the trial. This is also the
 
 ### Contact compliance and angular friction
 
+**Friction cone** selects `elliptic` or `pyramidal` contact friction. Fresh GUI settings and `configs/gui-current.json` use elliptic cones. The choice is saved with GUI defaults and written to each run configuration, manifest, and summary. Set `"friction_cone": "elliptic"` in CLI configurations to reproduce the elliptic-cone reruns. Existing saved settings and older CLI configurations without this field use pyramidal cones. Historical Dk1i and Kf1i profiles retain their recorded cone setting. The cone selection applies to serial, parallel, visible, and disturbance runs.
+
 `contact_damping_ratio` and `contact_time_constant_s` set MuJoCo's `solref`. A damping ratio of 1.2 is overdamped, 1 is critically damped, and values below 1 allow more rebound. A value such as 0.5 is a comparison setting. The time constant must be at least two simulation steps. Older configurations retain 1.2 and 5 ms when these fields are absent. [MuJoCo contact solver parameters](https://mujoco.readthedocs.io/en/3.14.0/modeling.html#solver-parameters)
 
 The torsional and rolling friction parameters are effective lengths, with legacy values of 5 mm and 0.1 mm. They describe resistance to contact rotation and can increase the stability of small workpieces. Set both to zero to retain sliding friction alone. [MuJoCo contact dimensions](https://mujoco.readthedocs.io/en/3.14.0/computation/index.html#condim)
