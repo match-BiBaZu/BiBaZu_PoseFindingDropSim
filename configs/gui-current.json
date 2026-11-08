@@ -31,7 +31,7 @@
   "roughness_belt_ramp_mm": 3.0,
   "roughness_wall_spacing_mm": 10.0,
   "roughness_belt_spacing_mm": 10.0,
-  "compute_stability": false,
+  "compute_stability": true,
   "catalog_push": false,
   "roughness_enabled": true,
   "roughness_model": "weight_impulse",
@@ -49,8 +49,10 @@
   "belt_stop_ramp_s": 0.2,
   "belt_stop_observation_s": 2.0,
   "mesh_path": "../src/dashas_drop_sim/assets/catalog/Dk1i.STL",
-  "roadmap_path": null,
   "output_dir": "../results",
   "catalog_repo": null,
-  "catalog_cad_dir": "../../BiBaZu_StableComponentenPoses"
+  "catalog_cad_dir": "../../BiBaZu_StableComponentenPoses",
+  "grouping_barrier_mm": 0.5,
+  "grouping_max_angle_deg": 60.0,
+  "grouping_minimum_frequency_percent": 1.0
 }

@@ -33,7 +33,6 @@
   "mu_belt": 0.4,
   "mu_wall": 0.2,
   "output_dir": "../results",
-  "roadmap_path": null,
   "roughness_active_duration_s": 1.0,
   "roughness_belt_height_mm": 0.0,
   "roughness_belt_ramp_mm": 3.0,

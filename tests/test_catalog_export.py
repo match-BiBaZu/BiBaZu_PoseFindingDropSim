@@ -39,7 +39,7 @@ def catalogue(tmp_path):
     subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
     git(repo, "remote", "add", "origin", str(remote))
     config = RunConfig(mesh, output_dir=tmp_path / "results", trials=2, workers=1,
-                       drop_height_mm=0, length_mm=300, compute_stability=False)
+                       drop_height_mm=0, length_mm=300, compute_stability=True, disturbance_levels_mm=(0,))
     result = run_experiment(config)
     return config, result, repo, cad
 
@@ -103,7 +103,7 @@ def test_stop_classes_use_symmetry_and_exclude_unsettled_or_missing_observations
     export_run(run.run_dir, repo, cad_dir=cad, push=False)
     transport = json.loads((repo / 'Cube/poses.json').read_text())
     transport['recognition']['continuous_axis_part'] = [0, 0, 1]
-    resolver = PoseResolver(config.mesh_path, None)
+    resolver = PoseResolver(config.mesh_path)
     resolver._continuous_axis = np.array([0, 0, 1])
     rows = []
     quats = list(Rotation.from_euler('z', [[0], [70], [140]], degrees=True).as_quat())
@@ -193,14 +193,15 @@ def test_retry_after_push_failure_does_not_simulate_or_renumber(catalogue):
     assert (repo / "Cube" / "poses.json").read_bytes() == before
 
 
-def test_resume_reuses_finished_physics_but_retries_export(catalogue, monkeypatch):
-    config, _run, repo, cad = catalogue
+def test_grouped_runs_disable_automatic_publication_before_simulating(catalogue, monkeypatch):
+    config, run, repo, cad = catalogue
     configured = replace(config, catalog_repo=repo, catalog_cad_dir=cad)
-    first = run_with_catalog(configured)
+    before = (run.run_dir / "trials.jsonl").read_bytes()
     monkeypatch.setattr("dashas_drop_sim.catalog_batch.run_experiment",
-                        lambda *a, **kw: pytest.fail("Completed simulation was rerun"))
-    again = run_with_catalog(configured)
-    assert again.run_dir == first.run_dir
+                        lambda *a, **kw: pytest.fail("Publication validation must precede simulation"))
+    with pytest.raises(ValueError, match="publication"):
+        run_with_catalog(configured)
+    assert (run.run_dir / "trials.jsonl").read_bytes() == before
 
 
 def test_uncommitted_user_changes_are_not_overwritten(catalogue):

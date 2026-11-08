@@ -17,7 +17,6 @@ from dashas_drop_sim.cli import _config
 from dashas_drop_sim.config import RunConfig
 from dashas_drop_sim.pose_matching import PoseMatch
 from dashas_drop_sim.runner import (
-    _assign_group_ids,
     _assign_unknown_clusters,
     _frequency_rows,
     _same_pose,
@@ -42,6 +41,7 @@ def _short_config(source: Path, *, output_dir: Path | None = None) -> RunConfig:
         drop_height_mm=0,
         length_mm=500,
         disturbance_levels_mm=(0,),
+        group_poses=False,
     )
 
 
@@ -69,7 +69,9 @@ def test_stop_observation_export_is_separate_from_transport(cube: Path):
 
 
 def test_short_real_cube_run_persists_unknown_pose_and_outputs(cube: Path) -> None:
-    result = run_experiment(_short_config(cube))
+    config = _short_config(cube)
+    config.group_poses = True
+    result = run_experiment(config)
     run_dir = result.run_dir
     for filename in (
         "config.json", "manifest.json", "trials.jsonl", "trials.csv",
@@ -86,30 +88,36 @@ def test_short_real_cube_run_persists_unknown_pose_and_outputs(cube: Path) -> No
     assert trial_csv[0]["status"] == trial_jsonl[0]["status"] == "settled"
     assert trial_csv[0]["match_status"] == trial_jsonl[0]["match_status"] == "unmatched"
     assert trial_csv[0]["pose_key"] == trial_jsonl[0]["pose_key"] == "unknown_001"
-    assert trial_jsonl[0]["roadmap_pose_id"] is None
-    assert trial_jsonl[0]["group_id"] == 0
-    assert trial_csv[0]["group_id"] == "0"
+    assert trial_jsonl[0]["reference_pose_id"] is None
+    assert trial_jsonl[0]["group_id"] is None
+    assert trial_csv[0]["group_id"] == ""
     membership = json.loads((run_dir / "groups.json").read_text())
-    assert membership["groups"] == [{"group_id": 0, "pose_key": "unknown_001", "count": 1,
-                                      "member_trial_ids": [0]}]
+    assert membership["assessment_complete"]
+    assert membership["groups"][0]["pose_id"] == "group_000"
+    assert membership["groups"][0]["group_id"] == 0
+    assert membership["groups"][0]["members"] == ["cube_0001"]
+    assert membership["groups"][0]["member_trial_ids"] == [0]
+    classified = json.loads((run_dir / "grouped_trials.jsonl").read_text())
+    assert classified["published_group_id"] == "group_000" and classified["display_group_id"] == 0
+
 
     frequencies = _csv_rows(run_dir / "frequencies.csv")
     assert len(frequencies) == 1
-    assert frequencies[0]["pose_id"] == "unknown_001"
+    assert frequencies[0]["pose_id"] == "group_000"
     assert int(frequencies[0]["count"]) == 1
     assert frequencies[0]["group_id"] == "0"
     assert float(frequencies[0]["probability"]) == 1
     assert result.summary["completed_trials"] == result.summary["settled_trials"] == 1
-    assert result.summary["pose_frequencies"][0]["pose_id"] == "unknown_001"
+    assert result.summary["pose_frequencies"][0]["pose_id"] == "group_000"
     assert "0.5 m" in result.summary["interpretation"]
     manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["mesh_source_sha256"]
     assert manifest["mesh_triangles_sha256"]
-    assert manifest["roadmap_sha256"] is None
-    assert result.summary["disturbance_trials"] == 1
+    assert manifest["observed_catalog_sha256"] is None
+    assert result.summary["group_disturbance_trials"] == 13
 
 
-def test_ungrouped_trials_keep_separate_poses_with_the_same_roadmap_id(cube, monkeypatch):
+def test_ungrouped_trials_keep_separate_poses_with_the_same_pose_catalogue_id(cube, monkeypatch):
     from dashas_drop_sim.pose_matching import PoseResolver
 
     monkeypatch.setattr(PoseResolver, "resolve", lambda self, quat: PoseMatch("matched", 0, 0))
@@ -121,7 +129,7 @@ def test_ungrouped_trials_keep_separate_poses_with_the_same_roadmap_id(cube, mon
     result = run_experiment(config)
     trials = _csv_rows(result.run_dir / "trials.csv")
     assert [row["pose_key"] for row in trials] == ["trial_000", "trial_001"]
-    assert [row["roadmap_pose_id"] for row in trials] == ["0", "0"]
+    assert [row["reference_pose_id"] for row in trials] == ["0", "0"]
     assert [(row["pose_id"], row["count"]) for row in result.summary["pose_frequencies"]] == [
         ("trial_000", 1), ("trial_001", 1),
     ]
@@ -129,31 +137,6 @@ def test_ungrouped_trials_keep_separate_poses_with_the_same_roadmap_id(cube, mon
     assert all(row["group_id"] == "" for row in trials)
     assert not (result.run_dir / "groups.json").exists()
 
-
-def test_frequency_group_ids_preserve_keys_and_account_for_every_member():
-    rows = [
-        {"trial": i, "status": status, "pose_key": key, "match_status": "unmatched"}
-        for i, (status, key) in enumerate([
-            ("settled", "z"), ("settled_stationary", "a"), ("settled", "z"),
-            ("settled", "b"), ("settled", "ambiguous"), ("unsettled", "unsettled"),
-        ])
-    ]
-    original = [dict(row) for row in rows]
-    groups = _assign_group_ids(rows, group_poses=True)
-    assert [(g["group_id"], g["pose_key"], g["member_trial_ids"]) for g in groups] == [
-        (0, "z", [0, 2]), (1, "a", [1]), (2, "b", [3]),
-    ]
-    assert [r["group_id"] for r in rows] == [0, 1, 0, 2, None, None]
-    assert [{k: v for k, v in r.items() if k != "group_id"} for r in rows] == original
-    assert json.loads(json.dumps(groups)) == groups
-    # Input completion order must not affect ties or membership serialization.
-    assert _assign_group_ids(list(reversed(rows)), group_poses=True) == groups
-    frequencies = _frequency_rows(rows, len(rows))
-    assert {r["pose_id"]: r["group_id"] for r in frequencies} == {
-        "z": 0, "a": 1, "b": 2, "ambiguous": None, "unsettled": None,
-    }
-    assert _assign_group_ids(rows, group_poses=False) == []
-    assert all(r["group_id"] is None for r in rows)
 
 
 def test_same_seed_repeats_release_and_end_state(cube: Path) -> None:
@@ -403,13 +386,13 @@ def test_cancel_after_one_trial_preserves_completed_trial(cube: Path) -> None:
     assert result.summary["cancelled"] is True
     assert result.summary["completed_trials"] == len(records) == 1
     assert result.summary["disturbance_trials"] == 0
-    assert records[0]["pose_key"] == "unknown_001"
+    assert records[0]["pose_key"] == "trial_000"
 
 
 def test_unsettled_trial_is_counted_without_pose_assignment() -> None:
     row = {
         "status": "unsettled", "match_status": "not_evaluated",
-        "roadmap_pose_id": None, "pose_key": None,
+        "reference_pose_id": None, "pose_key": None,
         "final_quat_xyzw": [0, 0, 0, 1],
     }
 
@@ -428,9 +411,9 @@ def test_unsettled_trial_is_counted_without_pose_assignment() -> None:
     }]
 
 
-def test_unknown_disturbance_reaching_known_roadmap_pose_is_not_retained() -> None:
+def test_unknown_disturbance_reaching_known_pose_catalogue_pose_is_not_retained() -> None:
     source = {
-        "match_status": "unmatched", "roadmap_pose_id": None,
+        "match_status": "unmatched", "reference_pose_id": None,
         "final_quat_xyzw": [0, 0, 0, 1],
     }
     outcome = SimpleNamespace(status="settled", final_quat_xyzw=(0.02, 0, 0, 0.9998))
@@ -446,7 +429,7 @@ def test_unknown_disturbance_reaching_known_roadmap_pose_is_not_retained() -> No
 
 
 def test_stable_intermediate_pose_change_counts_as_lost_even_if_end_returns() -> None:
-    source = {"match_status": "matched", "roadmap_pose_id": 3,
+    source = {"match_status": "matched", "reference_pose_id": 3,
               "final_quat_xyzw": [0, 0, 0, 1]}
     outcome = SimpleNamespace(
         status="settled", final_quat_xyzw=(0, 0, 0, 1),
@@ -460,9 +443,9 @@ def test_stable_intermediate_pose_change_counts_as_lost_even_if_end_returns() ->
     assert _same_pose(source, outcome, TwoPoses()) is False
 
 
-def test_known_roadmap_pose_without_hits_has_zero_count_and_interval() -> None:
+def test_known_pose_catalogue_pose_without_hits_has_zero_count_and_interval() -> None:
     rows = [{"status": "unsettled", "match_status": "not_evaluated",
-             "roadmap_pose_id": None, "pose_key": "unsettled"}]
+             "reference_pose_id": None, "pose_key": "unsettled"}]
     frequencies = _frequency_rows(rows, total=1, known_pose_ids=(3,))
     zero = next(row for row in frequencies if row["pose_id"] == "3")
     assert zero["category"] == "pose"

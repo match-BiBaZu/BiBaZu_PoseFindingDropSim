@@ -13,7 +13,6 @@ from typing import Any
 class RunConfig:
     mesh_path: Path
     output_dir: Path = Path("results")
-    roadmap_path: Path | None = None
     catalog_repo: Path | None = None
     catalog_cad_dir: Path | None = None
     catalog_push: bool = True
@@ -59,6 +58,15 @@ class RunConfig:
     belt_mode: str = "auto"
     group_poses: bool = True
     friction_cone: str = "pyramidal"
+    observed_catalog_path: Path | None = None
+    grouping_barrier_mm: float = 0.5
+    grouping_max_angle_deg: float = 60.0
+    grouping_minimum_frequency_percent: float = 1.0
+
+    @property
+    def grouping_enabled(self) -> bool:
+        """Published-engine name for the GUI's grouping switch."""
+        return self.group_poses
 
     @property
     def effective_belt_speed_mm_s(self) -> float:
@@ -73,21 +81,16 @@ class RunConfig:
         return self.belt_mode != "stopped" and self.belt_stop_enabled
 
     def validate(self) -> None:
-        for name in ("catalog_repo", "catalog_cad_dir"):
+        for name in ("catalog_repo", "catalog_cad_dir", "observed_catalog_path"):
             value = getattr(self, name)
             setattr(self, name, None if value in (None, "") else Path(value).expanduser().resolve())
         self.mesh_path = Path(self.mesh_path).expanduser().resolve()
         self.output_dir = Path(self.output_dir).expanduser().resolve()
-        self.roadmap_path = (
-            None if self.roadmap_path in (None, "") else Path(self.roadmap_path).expanduser().resolve()
-        )
         if not self.mesh_path.is_file() or self.mesh_path.suffix.lower() not in {".stl", ".step", ".stp"}:
             raise ValueError("Select an existing STL or STEP part file.")
-        if self.roadmap_path is not None and (
-            not self.roadmap_path.is_file() or self.roadmap_path.suffix.lower() not in {".json", ".yaml", ".yml"}
-        ):
-            raise ValueError("The optional roadmap must be an existing JSON or YAML file.")
         self.validate_parameters()
+        if self.observed_catalog_path is not None and not self.observed_catalog_path.is_file():
+            raise ValueError("The observed catalog must be an existing JSON file.")
         if self.catalog_repo is not None and not self.group_poses:
             raise ValueError("Catalogue export requires grouped poses.")
 
@@ -111,6 +114,17 @@ class RunConfig:
             raise ValueError("Running belt mode requires a positive belt speed.")
         if not isinstance(self.group_poses, bool):
             raise ValueError("group_poses must be true or false")
+        if self.group_poses and not self.compute_stability:
+            raise ValueError("Grouping requires compute_stability for complete member assessment.")
+        if self.group_poses and self.catalog_repo is not None:
+            raise ValueError("Published grouping uses local representative exports; disable automatic catalog publication.")
+        for name, upper in (("grouping_barrier_mm", 100), ("grouping_max_angle_deg", 180),
+                            ("grouping_minimum_frequency_percent", 100)):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not math.isfinite(value) or not 0 <= value <= upper:
+                raise ValueError(f"{name} must be finite and between 0 and {upper}")
+        if self.grouping_max_angle_deg == 0:
+            raise ValueError("grouping_max_angle_deg must be positive")
         if self.friction_cone not in ("pyramidal", "elliptic"):
             raise ValueError("friction_cone must be pyramidal or elliptic")
         if self.roughness_model not in {"longitudinal_traction", "microfacet", "weight_force", "weight_impulse"}:
@@ -170,25 +184,35 @@ class RunConfig:
         if levels != tuple(sorted(set(levels))):
             raise ValueError("Disturbance levels must be unique and increasing")
         self.disturbance_levels_mm = levels
+        if self.group_poses:
+            self.disturbance_levels_mm = tuple(sorted(set((*levels, self.grouping_barrier_mm))))
 
     def to_dict(self) -> dict[str, Any]:
         result = asdict(self)
         result["mesh_path"] = str(Path(self.mesh_path).expanduser().resolve())
         result["output_dir"] = str(Path(self.output_dir).expanduser().resolve())
-        result["roadmap_path"] = None if self.roadmap_path is None else str(Path(self.roadmap_path).expanduser().resolve())
-        for name in ("catalog_repo", "catalog_cad_dir"):
+        for name in ("catalog_repo", "catalog_cad_dir", "observed_catalog_path"):
             value = getattr(self, name)
             result[name] = None if value is None else str(Path(value).expanduser().resolve())
         return result
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "RunConfig":
+        raw = dict(raw)
+        if "grouping_enabled" in raw:
+            alias = raw.pop("grouping_enabled")
+            if not isinstance(alias, bool):
+                raise ValueError("grouping_enabled must be true or false")
+            if "group_poses" in raw and raw["group_poses"] != alias:
+                raise ValueError("Conflicting group_poses and grouping_enabled values")
+            raw["group_poses"] = alias
         allowed = cls.__dataclass_fields__.keys()
+        raw = {k: v for k, v in raw.items() if k in allowed or v is not None}
         extras = set(raw) - set(allowed)
         if extras:
             raise ValueError(f"Unknown configuration keys: {sorted(extras)}")
         payload = dict(raw)
-        for key in ("mesh_path", "output_dir", "roadmap_path", "catalog_repo", "catalog_cad_dir"):
+        for key in ("mesh_path", "output_dir", "catalog_repo", "catalog_cad_dir", "observed_catalog_path"):
             if payload.get(key) is not None:
                 payload[key] = Path(payload[key])
         if "disturbance_levels_mm" in payload:

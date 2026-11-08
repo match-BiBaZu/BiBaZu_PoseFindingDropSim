@@ -1,0 +1,28 @@
+{
+  "catalog_repository": "match-BiBaZu/BiBaZu_StableComponentenPoses",
+  "catalog_revision": "632b830bd890498e1b07b14d44d97b25f5bba7bb",
+  "engine_repository": "match-BiBaZu/Dashas_drop_sim",
+  "engine_revision": "02845275f7034c3a402ec54511c21ce1c1eeed39",
+  "modules": {
+    "grouping.py": {
+      "upstream_sha256": "b19807c67d45b9552d2ec276b4ef151abe15d65b8dac953f921c1e3d96d9ec86",
+      "local_sha256": "b19807c67d45b9552d2ec276b4ef151abe15d65b8dac953f921c1e3d96d9ec86"
+    },
+    "observed.py": {
+      "upstream_sha256": "95ed0604189024da879144a480aec5f4fa6cbbe0915ada953f6db4b3eb9ae221",
+      "local_sha256": "5d3913b2e00e8e4aeaed0b89f401b86f4306fc5fd123c1731dcbe09b6f30cc72"
+    },
+    "grouped_run.py": {
+      "upstream_sha256": "24769ac873f119e023d94f42f99255870387d39afec0af3810c513080f7c13f6",
+      "local_sha256": "42bb8d537b358be96aa07fa89f40193d0a1d59811674f0bc44025f04fd5818cd"
+    }
+  },
+  "port_notes": [
+    "grouping.py is byte-identical to the published engine.",
+    "Observed resolver retains source IDs and reference quaternions; added immutable saved-trial reconstruction.",
+    "Member assessment retains published retention and representative-selection rules; added checkpoint input/source validation, retained events, separate classification fields and display-ID crosswalk.",
+    "Source poses use recorded compatible anchors, otherwise first settled trial.",
+    "Local moving/static physics remain unchanged; the current cohorts are rebuilt independently rather than classified against fixed published memberships.",
+    "Pose recognition uses upstream observations and mesh symmetry only; downstream planning inputs and frequency renumbering are removed. Optional observed catalogue matches use reference_pose_id in new outputs."
+  ]
+}

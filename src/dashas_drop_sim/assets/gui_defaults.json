@@ -34,7 +34,7 @@
     "roughness_belt_ramp_mm": 3.0,
     "roughness_wall_spacing_mm": 10.0,
     "roughness_belt_spacing_mm": 10.0,
-    "compute_stability": false,
+    "compute_stability": true,
     "catalog_push": false,
     "roughness_enabled": true,
     "roughness_model": "weight_impulse",
@@ -50,7 +50,10 @@
     "roughness_active_duration_s": 1.0,
     "belt_stop_enabled": true,
     "belt_stop_ramp_s": 0.2,
-    "belt_stop_observation_s": 2.0
+    "belt_stop_observation_s": 2.0,
+    "grouping_barrier_mm": 0.5,
+    "grouping_max_angle_deg": 60.0,
+    "grouping_minimum_frequency_percent": 1.0
   },
   "inputs": {}
 }
