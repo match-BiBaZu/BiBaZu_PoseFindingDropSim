@@ -11,6 +11,21 @@ from dashas_drop_sim.catalog import catalog_models
 from dashas_drop_sim.gui import DropSimulationWindow
 
 
+def test_grouping_enables_assessment_and_restores_the_ungrouped_preference(tmp_path):
+    app=QApplication.instance() or QApplication([])
+    window=DropSimulationWindow(settings_path=tmp_path/'absent.json')
+    try:
+        assert window.compute_stability_check.isChecked() and not window.compute_stability_check.isEnabled()
+        window.group_poses_check.setChecked(False)
+        window.compute_stability_check.setChecked(False)
+        window.group_poses_check.setChecked(True)
+        assert window.compute_stability_check.isChecked() and not window.compute_stability_check.isEnabled()
+        window.group_poses_check.setChecked(False)
+        assert not window.compute_stability_check.isChecked() and window.compute_stability_check.isEnabled()
+    finally:
+        window.close()
+
+
 def test_save_parameters_without_model_and_reload_on_gui_restart(tmp_path, monkeypatch):
     app = QApplication.instance() or QApplication([])
     path = tmp_path / "preferences" / "gui_defaults.json"
@@ -49,8 +64,9 @@ def test_save_parameters_without_model_and_reload_on_gui_restart(tmp_path, monke
         window.force_duration_spin.setValue(0.05)
         window.force_interval_spin.setValue(0.2)
         window.output_edit.setText(str(tmp_path / "results"))
+        window.group_poses_check.setChecked(False)
         window.compute_stability_check.setChecked(False)
-        window.catalog_export_check.setChecked(True)
+        window.catalog_export_check.setChecked(False)
         window.catalog_repo_edit.setText(str(tmp_path / "catalogue"))
         window.catalog_cad_edit.setText(str(tmp_path / "cad"))
         expected = window._parameter_values()
@@ -65,9 +81,37 @@ def test_save_parameters_without_model_and_reload_on_gui_restart(tmp_path, monke
         assert reopened._parameter_values() == expected
         assert reopened.output_edit.text() == str(tmp_path / "results")
         assert reopened.mesh_edit.text() == ""
-        assert reopened.catalog_export_check.isChecked()
-        assert reopened.catalog_repo_edit.text() == str(tmp_path / "catalogue")
+        assert not reopened.catalog_export_check.isChecked()
+        assert not reopened.catalog_export_group.isEnabled()
         assert reopened.catalog_cad_edit.text() == str(tmp_path / "cad")
+    finally:
+        reopened.close()
+        del app
+
+
+def test_stopped_mode_and_grouping_persist_with_running_belt_presets(tmp_path):
+    app = QApplication.instance() or QApplication([])
+    path = tmp_path / "defaults.json"
+    window = DropSimulationWindow(settings_path=path)
+    try:
+        window.belt_spin.setValue(125)
+        window.belt_variation_spin.setValue(7)
+        window.belt_mode_combo.setCurrentIndex(window.belt_mode_combo.findData("stopped"))
+        window.group_poses_check.setChecked(False)
+        window.save_defaults_button.click()
+    finally:
+        window.close()
+    reopened = DropSimulationWindow(settings_path=path)
+    try:
+        assert reopened.belt_mode_combo.currentData() == "stopped"
+        assert not reopened.group_poses_check.isChecked()
+        assert not reopened.catalog_export_group.isEnabled()
+        assert not reopened.belt_spin.isEnabled()
+        assert not reopened.belt_stop_check.isEnabled()
+        reopened.belt_mode_combo.setCurrentIndex(reopened.belt_mode_combo.findData("running"))
+        assert reopened.belt_spin.isEnabled() and reopened.belt_spin.value() == 125
+        assert reopened.belt_variation_spin.value() == 7
+        assert reopened.belt_stop_check.isEnabled() and reopened.belt_stop_check.isChecked()
     finally:
         reopened.close()
         del app
@@ -106,14 +150,14 @@ def test_invalid_saved_range_keeps_gui_usable(tmp_path):
         del app
 
 
-def test_saved_catalogue_model_keeps_explicit_roadmap(tmp_path):
+def test_saved_catalogue_model_keeps_explicit_pose_catalogue(tmp_path):
     app = QApplication.instance() or QApplication([])
     path = tmp_path / "gui_defaults.json"
-    roadmap = tmp_path / "manual_roadmap.yaml"
+    pose_catalogue = tmp_path / "manual_pose_catalogue.yaml"
     window = DropSimulationWindow(settings_path=path)
     try:
         window.catalog_combo.setCurrentIndex(window.catalog_combo.findText("Qk1a"))
-        window.roadmap_edit.setText(str(roadmap))
+        window.observed_catalog_edit.setText(str(pose_catalogue))
         window.save_defaults_button.click()
     finally:
         window.close()
@@ -121,7 +165,7 @@ def test_saved_catalogue_model_keeps_explicit_roadmap(tmp_path):
     try:
         assert reopened.mesh_edit.text() == str(catalog_models()["Qk1a"])
         assert reopened.catalog_combo.currentText() == "Qk1a"
-        assert reopened.roadmap_edit.text() == str(roadmap)
+        assert reopened.observed_catalog_edit.text() == str(pose_catalogue)
     finally:
         reopened.close()
         del app

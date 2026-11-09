@@ -121,7 +121,7 @@ dev = [
 gui = [
     { name = "pyqt6" },
 ]
-roadmap = [
+symmetry = [
     { name = "bibazu-chute-pose" },
 ]
 step = [
@@ -130,7 +130,7 @@ step = [
 
 [package.metadata]
 requires-dist = [
-    { name = "bibazu-chute-pose", marker = "extra == 'roadmap'", git = "https://github.com/match-BiBaZu/bibazu_geometry_to_pose.git?rev=94cffbca9e4a227beea266bb098f8186e1d1029d" },
+    { name = "bibazu-chute-pose", marker = "extra == 'symmetry'", git = "https://github.com/match-BiBaZu/bibazu_geometry_to_pose.git?rev=94cffbca9e4a227beea266bb098f8186e1d1029d" },
     { name = "cadquery-ocp", marker = "extra == 'step'", specifier = ">=7.8,<8" },
     { name = "coacd", specifier = "==1.0.14" },
     { name = "mujoco", specifier = "==3.14.0" },
@@ -141,7 +141,7 @@ requires-dist = [
     { name = "scipy", specifier = ">=1.11,<2" },
     { name = "trimesh", specifier = ">=4,<6" },
 ]
-provides-extras = ["gui", "step", "roadmap", "dev"]
+provides-extras = ["gui", "step", "symmetry", "dev"]
 
 [[package]]
 name = "etils"

@@ -22,6 +22,7 @@ from dashas_drop_sim.gui import DropSimulationWindow
     {"roughness_impulse_delta_v_mm_s": -1},
     {"roughness_impulse_delta_v_mm_s": 1001},
     {"roughness_active_duration_s": -1},
+    {"friction_cone": "invalid"},
 ])
 def test_invalid_contact_and_force_settings_are_rejected(changes):
     config = RunConfig(Path("unused.stl"), **changes)
@@ -34,6 +35,57 @@ def test_weight_force_does_not_use_surface_height_to_validate_pulses(mode):
     config = RunConfig(Path("unused.stl"), roughness_enabled=True,
                        roughness_model=mode, roughness_wall_height_mm=2)
     config.validate_parameters()
+
+
+def test_friction_cone_roundtrips_gui_settings_and_preserves_legacy_default(tmp_path):
+    from dashas_drop_sim.settings import save_defaults
+
+    app = QApplication.instance() or QApplication([])
+    path = tmp_path / "cone-settings.json"
+    window = DropSimulationWindow(settings_path=path)
+    try:
+        assert window.friction_cone_combo.currentData() == "elliptic"
+        window.friction_cone_combo.setCurrentIndex(window.friction_cone_combo.findData("pyramidal"))
+        window._save_defaults()
+    finally:
+        window.close()
+    reopened = DropSimulationWindow(settings_path=path)
+    try:
+        assert reopened._parameter_values()["friction_cone"] == "pyramidal"
+        reopened.friction_cone_combo.setCurrentIndex(reopened.friction_cone_combo.findData("elliptic"))
+        reopened._save_defaults()
+    finally:
+        reopened.close()
+    reopened = DropSimulationWindow(settings_path=path)
+    try:
+        assert reopened._parameter_values()["friction_cone"] == "elliptic"
+    finally:
+        reopened.close()
+    save_defaults(path, {"seed": 42}, {})
+    legacy = DropSimulationWindow(settings_path=path)
+    try:
+        assert legacy._parameter_values()["friction_cone"] == "pyramidal"
+        assert RunConfig(Path("unused.stl")).friction_cone == "pyramidal"
+    finally:
+        legacy.close()
+        del app
+
+
+@pytest.mark.parametrize("cone", ["pyramidal", "elliptic"])
+def test_simulator_compiles_requested_friction_cone(tmp_path, cone):
+    import mujoco
+    import trimesh
+    from dashas_drop_sim.geometry import prepare_part
+    from dashas_drop_sim.physics import ChuteSimulator
+
+    mesh = tmp_path / "cube.stl"
+    trimesh.creation.box(extents=[20, 20, 20]).export(mesh)
+    config = RunConfig(mesh, friction_cone=cone)
+    part = prepare_part(mesh, tmp_path / "cache", config.density_g_cm3)
+    simulator = ChuteSimulator(config, part)
+    expected = (mujoco.mjtCone.mjCONE_ELLIPTIC if cone == "elliptic"
+                else mujoco.mjtCone.mjCONE_PYRAMIDAL)
+    assert simulator.model.opt.cone == expected
 
 
 def test_weight_controls_roundtrip_percent_and_disable_unused_geometry(tmp_path):

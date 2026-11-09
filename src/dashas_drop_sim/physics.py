@@ -102,6 +102,7 @@ class ChuteSimulator:
             solver="Newton",
             iterations="100",
             tolerance="1e-9",
+            cone=cfg.friction_cone,
         )
         assets = ET.SubElement(root, "asset")
         files = [part.visual_mesh_path, *part.collision_mesh_paths]
@@ -116,7 +117,7 @@ class ChuteSimulator:
         world = ET.SubElement(root, "worldbody")
         ET.SubElement(world, "light", pos="0 -1 2", dir="0 0 -1", diffuse="0.8 0.8 0.8")
         chute = ET.SubElement(world, "body", name="chute", quat=_numbers(_wxyz(self.chute_rotation)))
-        speed = cfg.belt_speed_mm_s / 1000
+        speed = cfg.effective_belt_speed_mm_s / 1000
         ET.SubElement(
             chute,
             "geom",
@@ -240,7 +241,7 @@ class ChuteSimulator:
     def _spawn(self, local_quat_xyzw: np.ndarray, *, drop_height_mm: float | None = None,
                lateral_mm: float | None = None) -> None:
         mujoco.mj_resetData(self.model, self.data)
-        self.model.geom_surfacevel[self.floor_id, 0] = self.config.belt_speed_mm_s / 1000
+        self.model.geom_surfacevel[self.floor_id, 0] = self.config.effective_belt_speed_mm_s / 1000
         local_part = Rotation.from_quat(local_quat_xyzw)
         vertices = self._centered_vertices_m
         rotated = local_part.apply(vertices)
@@ -303,12 +304,12 @@ class ChuteSimulator:
         filtered_omega = 2 * math.acos(min(1.0, abs(float(start @ end)))) / duration
         if filtered_omega > 0.02:
             return False
-        cross_positions = np.asarray([sample[2] for sample in samples])
-        if np.max(np.ptp(cross_positions, axis=0)) > 0.001:
+        positions = np.asarray([sample[2] for sample in samples])
+        if np.max(np.ptp(positions, axis=0)) > 0.001:
             return False
-        cross_speed = np.linalg.norm(np.mean(cross_positions[-width:], axis=0)
-                                     - np.mean(cross_positions[:width], axis=0)) / duration
-        return bool(cross_speed <= 0.001)
+        speed = np.linalg.norm(np.mean(positions[-width:], axis=0)
+                               - np.mean(positions[:width], axis=0)) / duration
+        return bool(speed <= 0.001)
 
     def _update_roughness_markers(self, viewer, roughness) -> None:
         """Show contact and +X force direction; marker length is schematic."""
@@ -359,7 +360,8 @@ class ChuteSimulator:
         cfg, data = self.config, self.data
         initial_pos = tuple(float(value * 1000) for value in self._local_position(data))
         start_x = float(self._local_position(data)[0])
-        belt_m_s = cfg.belt_speed_mm_s / 1000
+        belt_m_s = cfg.effective_belt_speed_mm_s / 1000
+        position_axes = slice(None) if cfg.belt_mode == "stopped" else slice(1, 3)
         max_time = 10.0 if belt_m_s == 0 else max(10.0, 5.0 + 1.5 * (self.exit_x_m - start_x) / belt_m_s)
         history: deque[tuple] = deque()
         first_settled: float | None = None
@@ -379,7 +381,7 @@ class ChuteSimulator:
                          or (cfg.roughness_model not in {"weight_force", "weight_impulse"} and (
                              cfg.roughness_wall_height_mm > 0 or cfg.roughness_belt_height_mm > 0))) else None)
         roughness_stride = max(1, round(0.005 / cfg.timestep_s))
-        belt_profile = BeltSpeedProfile(cfg, seed) if cfg.belt_speed_variation_mm_s > 0 else None
+        belt_profile = BeltSpeedProfile(cfg, seed) if cfg.effective_belt_variation_mm_s > 0 else None
         profile_start_s = float(data.time)
         status = "timeout"
         step = 0
@@ -417,7 +419,7 @@ class ChuteSimulator:
             pos = self._local_position(data)
             quat = self._local_quat(data)
             floor, wall = self._contact_flags(data)
-            history.append((data.time, quat.copy(), pos[1:3].copy(), floor, wall))
+            history.append((data.time, quat.copy(), pos[position_axes].copy(), floor, wall))
             while history and data.time - history[0][0] > 0.51:
                 history.popleft()
             reached_exit = belt_m_s > 0 and pos[0] >= self.exit_x_m
@@ -472,7 +474,7 @@ class ChuteSimulator:
         )
         # Preserve the transport measurement verbatim; the extra stationary
         # observation has its own pose/status and never changes kick rankings.
-        if cfg.belt_stop_enabled and status in {"settled", "unsettled"} and not trace_stable:
+        if cfg.observe_exit_stop and status in {"settled", "unsettled"} and not trace_stable:
             outcome.stop_observation = self._observe_belt_stop(cancel=cancel, viewer=viewer)
         return outcome
 
@@ -588,13 +590,14 @@ class ChuteSimulator:
         cancel: Callable[[], bool] | None = None,
     ) -> TrialOutcome:
         mujoco.mj_resetData(self.model, self.data)
-        self.model.geom_surfacevel[self.floor_id, 0] = self.config.belt_speed_mm_s / 1000
+        belt_m_s = self.config.effective_belt_speed_mm_s / 1000
+        self.model.geom_surfacevel[self.floor_id, 0] = belt_m_s
         source = np.asarray(source_qpos, dtype=float)
         local_pos = self.R_chute_world @ source[:3]
         local_pos[0] = self.start_x_m
         self.data.qpos[:3] = self.R_world_chute @ local_pos
         self.data.qpos[3:7] = source[3:7]
-        self.data.qvel[:3] = self.R_world_chute @ np.array([self.config.belt_speed_mm_s / 1000, 0, 0])
+        self.data.qvel[:3] = self.R_world_chute @ np.array([belt_m_s, 0, 0])
         self.data.qvel[3:6] = 0
         mujoco.mj_forward(self.model, self.data)
         # Let the reset state re-seat before the angular kick.
@@ -619,7 +622,7 @@ class ChuteSimulator:
             trial=index,
             seed=(int(np.random.SeedSequence([self.config.seed, index + 1, 0x51AB1E])
                       .generate_state(1, dtype=np.uint32)[0])
-                  if self.config.roughness_enabled or self.config.belt_speed_variation_mm_s > 0 else 0),
+                  if self.config.roughness_enabled or self.config.effective_belt_variation_mm_s > 0 else 0),
             initial_quat=self._local_quat(self.data),
             cancel=cancel,
             trace_stable=True,

@@ -49,10 +49,9 @@ from PyQt6.QtWidgets import (
 )
 
 from .config import RunConfig
-from .batch import Workpiece, batch_configs, find_roadmap
+from .batch import Workpiece, batch_configs
 from .catalog import SOURCE_COMMIT, catalog_models
 from .pose_image import render_pose_image
-from .roadmap_reindex import reindex_roadmaps
 from .settings import GUI_INITIAL_PARAMETERS, default_settings_path, load_defaults, save_defaults
 
 
@@ -96,7 +95,6 @@ class DropSimulationWindow(QMainWindow):
         self._output_dir: Path | None = None
         self._run_dir: Path | None = None
         self._mode = ""
-        self._catalog_auto_roadmap: str | None = None
         self._batch_active = False
         self._batch_stop_requested = False
         self._batch_configs: list[RunConfig] = []
@@ -107,6 +105,7 @@ class DropSimulationWindow(QMainWindow):
         self._build_ui()
         self._update_batch_count()
         self._load_saved_defaults()
+        self._sync_grouping_controls()
 
     def _build_ui(self) -> None:
         outer = QScrollArea()
@@ -125,13 +124,6 @@ class DropSimulationWindow(QMainWindow):
         file_form.addRow("Werkstückkatalog", self.catalog_combo)
         self.mesh_edit = QLineEdit()
         file_form.addRow("Bauteil (STL oder STEP)", self._path_row(self.mesh_edit, self._choose_mesh))
-        self.roadmap_edit = QLineEdit()
-        self.roadmap_edit.setPlaceholderText("Optional: Roadmap zum Abgleich der Pose-IDs")
-        file_form.addRow("Roadmap", self._path_row(self.roadmap_edit, self._choose_roadmap))
-        self.reindex_button = QPushButton("YAML und JSON nach Häufigkeit neu nummerieren …")
-        self.reindex_button.setToolTip("Eine summary.json wählen und beide Roadmap-Dateien mit neuen Pose-IDs speichern")
-        self.reindex_button.clicked.connect(self._reindex_roadmaps)
-        file_form.addRow("Pose-Nummern", self.reindex_button)
         self.output_edit = QLineEdit(str(_default("output_dir", Path.cwd() / "results")))
         file_form.addRow("Ergebnisordner", self._path_row(self.output_edit, self._choose_output))
         layout.addWidget(files)
@@ -148,7 +140,7 @@ class DropSimulationWindow(QMainWindow):
         self.batch_catalog_button.clicked.connect(self._choose_batch_catalog)
         self.batch_all_button = QPushButton("Alle 39 hinzufügen")
         self.batch_all_button.clicked.connect(lambda: self._add_workpieces([
-            Workpiece(path, find_roadmap(path)) for path in catalog_models().values()]))
+            Workpiece(path) for path in catalog_models().values()]))
         self.batch_add_current_button = QPushButton("Aktuelles Werkstück hinzufügen")
         self.batch_add_current_button.clicked.connect(self._add_current_workpiece)
         self.batch_remove_button = QPushButton("Auswahl entfernen")
@@ -162,7 +154,7 @@ class DropSimulationWindow(QMainWindow):
             batch_actions.addWidget(button)
         batch_layout.addLayout(batch_actions)
         self.batch_table = QTableWidget(0, 4)
-        self.batch_table.setHorizontalHeaderLabels(["Werkstück", "Roadmap (optional)", "Status", "Ergebnisse"])
+        self.batch_table.setHorizontalHeaderLabels(["Werkstück", "Observed pose catalogue (optional)", "Status", "Ergebnisse"])
         self.batch_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.batch_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.batch_table.horizontalHeader().setStretchLastSection(True)
@@ -190,7 +182,16 @@ class DropSimulationWindow(QMainWindow):
         self.seed_spin.setRange(0, 2_147_483_647)
         self.seed_spin.setValue(int(_default("seed", 0)))
         form.addRow("Zufalls-Seed", self.seed_spin)
-        self.belt_spin = _spin(_default("belt_speed_mm_s", 100), 0, 200)
+        self.belt_mode_combo = QComboBox()
+        self.belt_mode_combo.addItem("Laufend", "running")
+        self.belt_mode_combo.addItem("Stillstehend ab Abwurf", "stopped")
+        self.belt_mode_combo.setCurrentIndex(self.belt_mode_combo.findData(_default("belt_mode", "running")))
+        form.addRow("Bandbetrieb", self.belt_mode_combo)
+        self.group_poses_check = QCheckBox("Posen gruppieren")
+        self.group_poses_check.setChecked(bool(_default("group_poses", True)))
+        self.group_poses_check.setToolTip("Published observed-pose basins with complete member disturbance assessment. Ungrouped trials keep separate pose IDs.")
+        form.addRow(self.group_poses_check)
+        self.belt_spin = _spin(_default("belt_speed_mm_s", 100), 0.1, 200)
         self.belt_spin.setSuffix(" mm/s")
         form.addRow("Bandgeschwindigkeit", self.belt_spin)
         self.belt_variation_spin = _spin(_default("belt_speed_variation_mm_s", 0), 0, 20, 2, 0.5)
@@ -219,9 +220,9 @@ class DropSimulationWindow(QMainWindow):
         self.belt_stop_wait_spin.setSuffix(" s")
         form.addRow("Bremsdauer Band", self.belt_stop_ramp_spin)
         form.addRow("Beobachtung nach Stillstand", self.belt_stop_wait_spin)
-        for widget in (self.belt_stop_ramp_spin, self.belt_stop_wait_spin):
-            widget.setEnabled(self.belt_stop_check.isChecked())
-            self.belt_stop_check.toggled.connect(widget.setEnabled)
+        self.belt_mode_combo.currentIndexChanged.connect(self._update_belt_controls)
+        self.belt_stop_check.toggled.connect(self._update_belt_controls)
+        self._update_belt_controls()
         self.height_spin = _spin(_default("drop_height_mm", 100), 0, 200)
         self.height_spin.setSuffix(" mm")
         self.height_spread_spin = _spin(_default("drop_height_spread_mm", 0), 0, 100)
@@ -348,6 +349,12 @@ class DropSimulationWindow(QMainWindow):
 
         advanced = QGroupBox("Erweiterte Simulationsparameter")
         advanced_form = QFormLayout(advanced)
+        self.friction_cone_combo = QComboBox()
+        self.friction_cone_combo.addItem("Elliptic", "elliptic")
+        self.friction_cone_combo.addItem("Pyramidal", "pyramidal")
+        self.friction_cone_combo.setCurrentIndex(
+            self.friction_cone_combo.findData(_default("friction_cone", "elliptic")))
+        advanced_form.addRow("Friction cone", self.friction_cone_combo)
         self.alpha_spin = _spin(_default("alpha_deg", 45), 0, 90, 1)
         self.alpha_spin.setSuffix(" °")
         advanced_form.addRow("Querneigung", self.alpha_spin)
@@ -381,6 +388,16 @@ class DropSimulationWindow(QMainWindow):
         self.compute_stability_check = QCheckBox("Zusätzliche Drehimpuls-Störkurven berechnen")
         self.compute_stability_check.setChecked(bool(_default("compute_stability", True)))
         advanced_form.addRow(self.compute_stability_check)
+        self._ungrouped_stability_preference = self.compute_stability_check.isChecked()
+        self.grouping_barrier_spin = _spin(_default("grouping_barrier_mm", 0.5), 0, 100, 3, 0.05)
+        self.grouping_angle_spin = _spin(_default("grouping_max_angle_deg", 60), 0.1, 180, 1, 5)
+        self.grouping_frequency_spin = _spin(_default("grouping_minimum_frequency_percent", 1), 0, 100, 2, 0.5)
+        advanced_form.addRow("Grouping seated-lift barrier (mm)", self.grouping_barrier_spin)
+        advanced_form.addRow("Maximum group diameter (degrees)", self.grouping_angle_spin)
+        advanced_form.addRow("Minimum aggregated frequency (%)", self.grouping_frequency_spin)
+        self.observed_catalog_edit = QLineEdit()
+        self.observed_catalog_edit.setPlaceholderText("Optional observed catalogue JSON; matching STL required")
+        advanced_form.addRow("Observed pose anchors", self.observed_catalog_edit)
         layout.addWidget(advanced)
 
         self.catalog_export_group = QGroupBox("Posenkatalog automatisch aktualisieren")
@@ -406,6 +423,9 @@ class DropSimulationWindow(QMainWindow):
         export_note.setWordWrap(True)
         export_form.addRow(export_note)
         layout.addWidget(self.catalog_export_group)
+        self.catalog_export_group.setToolTip("Published groups export assessed representatives locally; automatic catalogue publication is disabled.")
+        self.catalog_export_group.setEnabled(False)
+        self.group_poses_check.toggled.connect(self._sync_grouping_controls)
 
         controls = QHBoxLayout()
         self.start_button = QPushButton("Simulation starten")
@@ -487,7 +507,7 @@ class DropSimulationWindow(QMainWindow):
         self.stop_summary_label.setWordWrap(True)
         stop_layout.addWidget(self.stop_summary_label)
         self.stop_table = QTableWidget(0, 7)
-        self.stop_table.setHorizontalHeaderLabels(["Versuch", "Während Fahrt", "Nach Bandstopp", "Roadmap-Pose", "Drehung (°)", "Nachlauf (mm)", "Ruhepose"])
+        self.stop_table.setHorizontalHeaderLabels(["Versuch", "Während Fahrt", "Nach Bandstopp", "Observed pose reference", "Drehung (°)", "Nachlauf (mm)", "Ruhepose"])
         self.stop_table.horizontalHeader().setStretchLastSection(True)
         stop_layout.addWidget(self.stop_table)
         self.tabs.addTab(stop_tab, "Nach Bandstopp")
@@ -527,9 +547,6 @@ class DropSimulationWindow(QMainWindow):
             "CAD-Modelle (*.stl *.STL *.step *.STEP *.stp *.STP);;Alle Dateien (*)",
         )
         if path:
-            if self._catalog_auto_roadmap and self.roadmap_edit.text() == self._catalog_auto_roadmap:
-                self.roadmap_edit.clear()
-            self._catalog_auto_roadmap = None
             self.catalog_combo.setCurrentIndex(0)
             self.mesh_edit.setText(path)
 
@@ -538,7 +555,7 @@ class DropSimulationWindow(QMainWindow):
             self, "Mehrere Werkstücke wählen", self.mesh_edit.text() or str(Path.cwd()),
             "CAD-Modelle (*.stl *.STL *.step *.STEP *.stp *.STP);;Alle Dateien (*)",
         )
-        self._add_workpieces([Workpiece(Path(path), find_roadmap(Path(path))) for path in paths])
+        self._add_workpieces([Workpiece(Path(path)) for path in paths])
 
     def _choose_batch_catalog(self) -> None:
         dialog = QDialog(self)
@@ -563,8 +580,7 @@ class DropSimulationWindow(QMainWindow):
         layout.addLayout(actions)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._add_workpieces([
-                Workpiece(Path(item.data(Qt.ItemDataRole.UserRole)),
-                          find_roadmap(Path(item.data(Qt.ItemDataRole.UserRole))))
+                Workpiece(Path(item.data(Qt.ItemDataRole.UserRole)))
                 for item in models.selectedItems()
             ])
 
@@ -573,8 +589,8 @@ class DropSimulationWindow(QMainWindow):
         if not mesh:
             QMessageBox.warning(self, "Werkstück-Batch", "Bitte ein Werkstück wählen.")
             return
-        roadmap = self.roadmap_edit.text().strip()
-        self._add_workpieces([Workpiece(Path(mesh), Path(roadmap) if roadmap else None)])
+        catalogue = self.observed_catalog_edit.text().strip()
+        self._add_workpieces([Workpiece(Path(mesh), Path(catalogue) if catalogue else None)])
 
     def _add_workpieces(self, workpieces: list[Workpiece]) -> None:
         if self._process is not None or self._batch_active:
@@ -592,9 +608,9 @@ class DropSimulationWindow(QMainWindow):
             item.setToolTip(str(mesh))
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.batch_table.setItem(row, 0, item)
-            edit = QLineEdit(str(workpiece.roadmap_path.expanduser().resolve()) if workpiece.roadmap_path else "")
-            edit.setPlaceholderText("Optional: Roadmap für dieses Werkstück")
-            self.batch_table.setCellWidget(row, 1, self._path_row(edit, lambda _checked=False, field=edit: self._choose_batch_roadmap(field)))
+            edit = QLineEdit(str(workpiece.observed_catalog_path.expanduser().resolve()) if workpiece.observed_catalog_path else "")
+            edit.setPlaceholderText("Optional observed pose catalogue JSON")
+            self.batch_table.setCellWidget(row, 1, self._path_row(edit, lambda _checked=False, field=edit: self._choose_batch_pose_catalogue(field)))
             self._set_batch_status(row, "Bereit")
             result_button = QPushButton("Ergebnisse")
             result_button.setEnabled(False)
@@ -602,10 +618,10 @@ class DropSimulationWindow(QMainWindow):
             existing.add(mesh)
         self._update_batch_count()
 
-    def _choose_batch_roadmap(self, edit: QLineEdit) -> None:
+    def _choose_batch_pose_catalogue(self, edit: QLineEdit) -> None:
         path, _ = QFileDialog.getOpenFileName(
-            self, "Roadmap für Werkstück wählen", edit.text() or str(Path.cwd()),
-            "Roadmaps (*.yaml *.yml *.json);;Alle Dateien (*)",
+            self, "Choose observed pose catalogue", edit.text() or str(Path.cwd()),
+            "Pose catalogues (*.json);;Alle Dateien (*)",
         )
         if path:
             edit.setText(path)
@@ -630,16 +646,16 @@ class DropSimulationWindow(QMainWindow):
         for row in range(self.batch_table.rowCount()):
             path = self.batch_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
             edit = self.batch_table.cellWidget(row, 1).findChild(QLineEdit)
-            roadmap = edit.text().strip()
-            workpieces.append(Workpiece(Path(path), Path(roadmap) if roadmap else None))
+            catalogue = edit.text().strip()
+            workpieces.append(Workpiece(Path(path), Path(catalogue) if catalogue else None))
         return workpieces
 
     def _set_running_controls(self, busy: bool) -> None:
         self.start_button.setEnabled(not busy)
         self.preview_button.setEnabled(not busy)
-        self.reindex_button.setEnabled(not busy)
         self.save_defaults_button.setEnabled(not busy)
-        self.catalog_export_group.setEnabled(not busy)
+        self.group_poses_check.setEnabled(not busy)
+        self.catalog_export_group.setEnabled(False)
         self.batch_start_button.setEnabled(not busy and self.batch_table.rowCount() > 0)
         self.cancel_button.setEnabled(busy)
         self.batch_table.setEnabled(not busy)
@@ -651,69 +667,6 @@ class DropSimulationWindow(QMainWindow):
         if path is None:
             return
         self.mesh_edit.setText(str(path))
-        if self._catalog_auto_roadmap and self.roadmap_edit.text() == self._catalog_auto_roadmap:
-            self.roadmap_edit.clear()
-        self._catalog_auto_roadmap = None
-        roadmap = find_roadmap(Path(path))
-        if roadmap is not None:
-            self._catalog_auto_roadmap = str(roadmap)
-            self.roadmap_edit.setText(self._catalog_auto_roadmap)
-
-    def _choose_roadmap(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Roadmap wählen", self.roadmap_edit.text() or str(Path.cwd()),
-            "Roadmaps (*.yaml *.yml *.json);;Alle Dateien (*)",
-        )
-        if path:
-            self.roadmap_edit.setText(path)
-
-    def _reindex_roadmaps(self) -> None:
-        if self._process is not None:
-            return
-        source_text = self.roadmap_edit.text().strip()
-        if not source_text:
-            QMessageBox.warning(self, "Pose-Nummern", "Bitte zuerst eine YAML- oder JSON-Roadmap wählen.")
-            return
-        source = Path(source_text).expanduser().resolve()
-        summary_start = self._run_dir / "summary.json" if self._run_dir else Path(self.output_edit.text().strip())
-        summary_path, _ = QFileDialog.getOpenFileName(
-            self, "Simulationsergebnis wählen", str(summary_start), "Zusammenfassung (summary.json);;JSON (*.json)",
-        )
-        if not summary_path:
-            return
-        destination_start = source.with_name(f"{source.stem}_frequency_ordered{source.suffix}")
-        destination, _ = QFileDialog.getSaveFileName(
-            self, "Neu nummerierte Roadmaps speichern", str(destination_start),
-            "Roadmaps (*.yaml *.yml *.json)",
-        )
-        if not destination:
-            return
-        try:
-            mapping, backups, outputs = reindex_roadmaps(source, Path(summary_path), Path(destination))
-        except (OSError, TypeError, ValueError, yaml.YAMLError) as exc:
-            QMessageBox.warning(self, "Pose-Nummern", str(exc))
-            return
-        selected = Path(destination).expanduser().resolve()
-        self.roadmap_edit.setText(str(selected))
-        for row, workpiece in enumerate(self._queued_workpieces()):
-            if (workpiece.mesh_path == Path(self.mesh_edit.text()).expanduser().resolve()
-                    and workpiece.roadmap_path is not None
-                    and workpiece.roadmap_path.expanduser().resolve() == source):
-                self.batch_table.cellWidget(row, 1).findChild(QLineEdit).setText(str(selected))
-        self._catalog_auto_roadmap = None
-        self.status_label.setText("Roadmaps neu nummeriert; Ergebnisse zeigen bisherige IDs")
-        self._log_line(f"{len(mapping)} Posen neu nummeriert: {outputs[0]} und {outputs[1]}")
-        self._log_line("Pose-IDs (alt → neu): " + ", ".join(
-            f"{old_id} → {new_id}" for old_id, new_id in sorted(mapping.items(), key=lambda item: item[1])
-        ))
-        for backup in backups:
-            self._log_line(f"Sicherung: {backup}")
-        QMessageBox.information(
-            self, "Pose-Nummern",
-            f"{len(mapping)} Posen nach Häufigkeit neu nummeriert. YAML und JSON wurden gespeichert.\n"
-            "Die angezeigten Ergebnisse verwenden noch die bisherigen Pose-Nummern.",
-        )
-
     def _choose_output(self) -> None:
         path = QFileDialog.getExistingDirectory(
             self, "Ergebnisordner wählen", self.output_edit.text() or str(Path.cwd())
@@ -723,6 +676,9 @@ class DropSimulationWindow(QMainWindow):
 
     def _parameter_widgets(self) -> dict[str, QSpinBox | QDoubleSpinBox]:
         return {
+            "grouping_barrier_mm": self.grouping_barrier_spin,
+            "grouping_max_angle_deg": self.grouping_angle_spin,
+            "grouping_minimum_frequency_percent": self.grouping_frequency_spin,
             "trials": self.trials_spin, "workers": self.workers_spin, "seed": self.seed_spin,
             "belt_speed_mm_s": self.belt_spin,
             "belt_speed_variation_mm_s": self.belt_variation_spin,
@@ -745,6 +701,29 @@ class DropSimulationWindow(QMainWindow):
             "roughness_active_duration_s": self.roughness_duration_spin,
             **self.roughness_spins,
         }
+
+    def _sync_grouping_controls(self, *_args: Any) -> None:
+        grouped = self.group_poses_check.isChecked()
+        if grouped:
+            if self.compute_stability_check.isEnabled():
+                self._ungrouped_stability_preference = self.compute_stability_check.isChecked()
+            self.compute_stability_check.setChecked(True)
+        else:
+            self.compute_stability_check.setChecked(self._ungrouped_stability_preference)
+        self.compute_stability_check.setEnabled(not grouped)
+        self.compute_stability_check.setToolTip(
+            "Required for published grouping: every member is assessed, including the grouping barrier level."
+            if grouped else "Optional additional disturbance curves for ungrouped trial poses.")
+        for widget in (self.grouping_barrier_spin, self.grouping_angle_spin, self.grouping_frequency_spin):
+            widget.setEnabled(grouped)
+        self.catalog_export_check.setChecked(False)
+
+    def _update_belt_controls(self, *_args: Any) -> None:
+        running = self.belt_mode_combo.currentData() == "running"
+        for widget in (self.belt_spin, self.belt_variation_spin, self.belt_interval_spin, self.belt_stop_check):
+            widget.setEnabled(running)
+        for widget in (self.belt_stop_ramp_spin, self.belt_stop_wait_spin):
+            widget.setEnabled(running and self.belt_stop_check.isChecked())
 
     def _update_roughness_controls(self, *_args) -> None:
         enabled = self.roughness_check.isChecked()
@@ -805,6 +784,9 @@ class DropSimulationWindow(QMainWindow):
         values = {name: widget.value() for name, widget in self._parameter_widgets().items()}
         values["roughness_force_fraction"] /= 100
         return {**values,
+                "belt_mode": self.belt_mode_combo.currentData(),
+                "group_poses": self.group_poses_check.isChecked(),
+                "friction_cone": self.friction_cone_combo.currentData(),
                 "compute_stability": self.compute_stability_check.isChecked(),
                 "catalog_push": self.catalog_push_check.isChecked(),
                 "roughness_enabled": self.roughness_check.isChecked(),
@@ -815,9 +797,10 @@ class DropSimulationWindow(QMainWindow):
         try:
             parameters = self._parameter_values()
             inputs = {name: str(Path(edit.text().strip()).expanduser().resolve()) if edit.text().strip() else ""
-                      for name, edit in (("mesh_path", self.mesh_edit), ("roadmap_path", self.roadmap_edit),
+                      for name, edit in (("mesh_path", self.mesh_edit),
                                          ("output_dir", self.output_edit), ("catalog_repo", self.catalog_repo_edit),
-                                         ("catalog_cad_dir", self.catalog_cad_edit))}
+                                         ("catalog_cad_dir", self.catalog_cad_edit),
+                                         ("observed_catalog_path", self.observed_catalog_edit))}
             if not self.catalog_export_check.isChecked():
                 inputs["catalog_repo"] = ""
             save_defaults(self._settings_path, parameters, inputs)
@@ -836,22 +819,34 @@ class DropSimulationWindow(QMainWindow):
         if data is None:
             return
         parameters = data["parameters"]
+        self.friction_cone_combo.setCurrentIndex(
+            self.friction_cone_combo.findData(parameters.get("friction_cone", "pyramidal")))
         for name, widget in self._parameter_widgets().items():
             if name in parameters:
+                if name == "belt_speed_mm_s" and parameters[name] == 0:
+                    continue  # Retain a valid running preset when loading a legacy stationary setup.
                 widget.setValue(parameters[name] * (100 if name == "roughness_force_fraction" else 1))
+        belt_mode = parameters.get("belt_mode", "auto")
+        if belt_mode == "auto":
+            belt_mode = "stopped" if parameters.get("belt_speed_mm_s") == 0 else "running"
+        self.belt_mode_combo.setCurrentIndex(self.belt_mode_combo.findData(belt_mode))
+        if "group_poses" in parameters:
+            self.group_poses_check.setChecked(parameters["group_poses"])
         if "roughness_enabled" in parameters:
             self.roughness_check.setChecked(parameters["roughness_enabled"])
         if "belt_stop_enabled" in parameters:
             self.belt_stop_check.setChecked(parameters["belt_stop_enabled"])
         self.compute_stability_check.setChecked(parameters.get("compute_stability", _default("compute_stability", True)))
+        self._ungrouped_stability_preference = self.compute_stability_check.isChecked()
         self.catalog_push_check.setChecked(parameters.get("catalog_push", _default("catalog_push", True)))
         if "roughness_model" in parameters:
             self.roughness_model_combo.setCurrentIndex(self.roughness_model_combo.findData(parameters["roughness_model"]))
         if "disturbance_levels_mm" in parameters:
             self.levels_edit.setText(", ".join(str(value) for value in parameters["disturbance_levels_mm"]))
-        for name, edit in (("mesh_path", self.mesh_edit), ("roadmap_path", self.roadmap_edit),
+        for name, edit in (("mesh_path", self.mesh_edit),
                            ("output_dir", self.output_edit), ("catalog_repo", self.catalog_repo_edit),
-                           ("catalog_cad_dir", self.catalog_cad_edit)):
+                           ("catalog_cad_dir", self.catalog_cad_edit),
+                           ("observed_catalog_path", self.observed_catalog_edit)):
             if name in data["inputs"]:
                 if name == "catalog_repo" and not data["inputs"][name]:
                     continue
@@ -869,21 +864,21 @@ class DropSimulationWindow(QMainWindow):
             raise ValueError("Bitte ein STL- oder STEP-Bauteil wählen.")
         if not output:
             raise ValueError("Bitte einen Ergebnisordner wählen.")
+        export_catalog = self.group_poses_check.isChecked() and self.catalog_export_check.isChecked()
         config = RunConfig(
             mesh_path=Path(mesh).expanduser().resolve(),
-            roadmap_path=workpiece.roadmap_path if workpiece else (
-                Path(self.roadmap_edit.text().strip()).expanduser().resolve()
-                if self.roadmap_edit.text().strip() else None
-            ),
+            observed_catalog_path=(workpiece.observed_catalog_path if workpiece else
+                Path(self.observed_catalog_edit.text().strip()).expanduser().resolve()
+                if self.observed_catalog_edit.text().strip() else None),
             output_dir=Path(output).expanduser().resolve(),
             catalog_repo=Path(self.catalog_repo_edit.text()).expanduser().resolve()
-                if self.catalog_export_check.isChecked() and self.catalog_repo_edit.text().strip() else None,
+                if export_catalog and self.catalog_repo_edit.text().strip() else None,
             catalog_cad_dir=Path(self.catalog_cad_edit.text()).expanduser().resolve()
                 if self.catalog_cad_edit.text().strip() else None,
             **self._parameter_values(),
         )
         config.validate()
-        if self.catalog_export_check.isChecked() and config.catalog_repo is None:
+        if export_catalog and config.catalog_repo is None:
             raise ValueError("Bitte ein Ergebnis-Repo wählen.")
         return config
 
@@ -988,8 +983,7 @@ class DropSimulationWindow(QMainWindow):
         self._batch_records[self._batch_index]["status"] = "running"
         self._persist_batch()
         self.mesh_edit.setText(str(config.mesh_path))
-        self.roadmap_edit.setText(str(config.roadmap_path or ""))
-        self._catalog_auto_roadmap = None
+        self.observed_catalog_edit.setText(str(config.observed_catalog_path or ""))
         self._log_line(f"Werkstück {self._batch_index + 1}: {config.mesh_path}")
         if not self._launch_config(config, "run"):
             self._record_batch_result("failed", 2)
@@ -1036,8 +1030,7 @@ class DropSimulationWindow(QMainWindow):
         if self._process is not None or self._batch_active:
             return
         self.mesh_edit.setText(str(config.mesh_path))
-        self.roadmap_edit.setText(str(config.roadmap_path or ""))
-        self._catalog_auto_roadmap = None
+        self.observed_catalog_edit.setText(str(config.observed_catalog_path or ""))
         self._run_dir = run_dir
         self._output_dir = config.output_dir
         self._run_started_at = 0
@@ -1345,7 +1338,7 @@ class DropSimulationWindow(QMainWindow):
         for record in rows:
             index = self.stop_table.rowCount()
             self.stop_table.insertRow(index)
-            values = [int(record["trial"]) + 1, record.get("transport_status"), record.get("status"), record.get("roadmap_pose_id")]
+            values = [int(record["trial"]) + 1, record.get("transport_status"), record.get("status"), record.get("reference_pose_id")]
             values += [f"{float(record[key]):.2f}" if record.get(key) is not None else "–"
                        for key in ("orientation_change_deg", "coast_distance_mm")]
             for column, value in enumerate(values):
@@ -1378,9 +1371,10 @@ class DropSimulationWindow(QMainWindow):
         fields = (
             ("Versuch", data["trial"] + 1 if isinstance(data.get("trial"), int) else None),
             ("Status", data.get("status")),
-            ("Roadmap-Pose", data.get("roadmap_pose_id")),
+            *([("Einzelpose", data["pose_key"])] if str(data.get("pose_key")).startswith("trial_") else []),
+            ("Observed pose reference", data.get("reference_pose_id")),
             ("Zuordnung", data.get("match_status")),
-            ("Abstand zur Roadmap-Pose (°)", data.get("match_distance_deg")),
+            ("Abstand zur beobachteten Referenzpose (°)", data.get("match_distance_deg")),
             ("Seed", data.get("seed")),
             ("Gezogene Abwurfhöhe (mm)", data.get("actual_drop_height_mm")),
             ("Gezogene Querposition (mm)", data.get("actual_lateral_mm")),
@@ -1498,6 +1492,8 @@ class DropSimulationWindow(QMainWindow):
                 item = QTableWidgetItem(str(value))
                 if column:
                     item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                elif row.get("reference_pose_id") not in (None, ""):
+                    item.setToolTip(f"Observed pose reference: {row['reference_pose_id']}")
                 self.result_table.setItem(index, column, item)
             button = QPushButton("Bild")
             button.setEnabled(bool(row.get("representative_quat_xyzw")) and self._run_dir is not None)
@@ -1508,8 +1504,9 @@ class DropSimulationWindow(QMainWindow):
         if self._preview_record is None:
             return
         record = self._preview_record
+        pose_id = record.get("pose_key") or record.get("reference_pose_id")
         self._show_pose({
-            "pose_id": record.get("roadmap_pose_id") or "Versuch",
+            "pose_id": pose_id if pose_id is not None else "Versuch",
             "representative_quat_xyzw": record.get("final_quat_xyzw"),
             "representative_pos_chute_mm": record.get("final_pos_chute_mm"),
             "representative_source": "observed",

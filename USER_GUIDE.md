@@ -4,14 +4,14 @@ Dashas Drop Sim runs reproducible drop tests for individual workpieces in the Bi
 
 ## Installation and launch
 
-Use Windows or another system that supports MuJoCo, Python 3.12, and [uv](https://docs.astral.sh/uv/). Installation of the optional roadmap dependency requires access to GitHub. Run these commands from the cloned repository.
+Use Windows or another system that supports MuJoCo, Python 3.12, and [uv](https://docs.astral.sh/uv/). Installation of the optional symmetry dependency requires access to GitHub. Run these commands from the cloned repository.
 
 ```powershell
-uv sync --locked --python 3.12 --all-extras
+uv sync --locked --python 3.12 --extra gui --extra dev
 uv run --no-sync dashas-drop-sim gui
 ```
 
-The extras install PyQt6 for the GUI, OpenCascade for STEP meshes, the pinned `bibazu_geometry_to_pose` package for roadmap comparisons, and pytest. On Windows, double-click `DropSimulationGUI.cmd` for a direct launch. The optional installer adds Desktop and Start menu shortcuts under **BiBaZu > BiBaZu Drop Simulation**. The simulator can run alongside other BiBaZu applications and shares CPU and memory resources with them. [Windows launcher and shortcuts](WindowsLaunchers/README.md)
+These extras install PyQt6 and pytest. Add `--extra symmetry` for the pinned geometry-symmetry package (source-repository access required), and `--extra step` for OpenCascade STEP import. The grouping engine is included in the simulator. On Windows, double-click `DropSimulationGUI.cmd` for a direct launch. The optional installer adds Desktop and Start menu shortcuts under **BiBaZu > BiBaZu Drop Simulation**. The simulator can run alongside other BiBaZu applications and shares CPU and memory resources with them. [Windows launcher and shortcuts](WindowsLaunchers/README.md)
 
 ### Defaults and saved profiles
 
@@ -22,20 +22,20 @@ A fresh GUI uses the versioned [GUI defaults](src/dashas_drop_sim/assets/gui_def
 | Profile | Workpiece | Trials | Workers | Catalog export |
 | --- | --- | ---: | ---: | --- |
 | [gui-current.json](configs/gui-current.json) | Dk1i | 100 | 4 | Off |
-| [dk1i-1000.json](configs/dk1i-1000.json) | Dk1i | 1,000 | 16 | Off |
-| [kf1i-10000.json](configs/kf1i-10000.json) | Kf1i | 10,000 | 16 | Exports and pushes to the neighboring stable-pose catalog |
+| [dk1i-1000.json](configs/dk1i-1000.json) | Dk1i | 1,000 | 16 | Off; historical profile |
+| [kf1i-10000.json](configs/kf1i-10000.json) | Kf1i | 10,000 | 16 | Historical publishing profile; adapt before use |
 
-The profiles use the bundled STL meshes and paths relative to the profile file. Select a profile and output directory that suit the experiment.
+The profiles use bundled STL meshes and paths relative to the profile file. Use `gui-current.json` for the current grouped workflow. The Dk1i and Kf1i historical profiles preserve their original physical settings and do not describe the newest Beckhoff benchmark. To reuse one with current grouping, enable `compute_stability` and clear `catalog_repo`; for drop-only runs, disable `group_poses` and clear `catalog_repo`. Automatic publication is unavailable with the restored grouping. Select an output directory that suits the experiment.
 
 ### Run a workpiece
 
-The **Werkstückkatalog** dropdown contains 39 offline STL models from source revision `02d3fbcf`. Use **Durchsuchen** to choose a custom STL or STEP. If a local copy of the geometry-to-pose repository contains one unambiguous matching roadmap, selecting a workpiece fills its roadmap field. In the frequency table, **Bild** opens a 3D sketch and identifies whether it shows an observed final orientation or a catalog reference. [Bundled mesh source](https://github.com/match-BiBaZu/bibazu_geometry_to_pose/tree/02d3fbcfcdc86fcf09ddbe40f39e89a936130447/Werkst%C3%BCcke_STL_grob)
+The **Werkstückkatalog** dropdown contains 39 offline STL models, originally imported from source revision `02d3fbcf`. Df1a has since been replaced with the updated component-selector mesh; use each manifest's geometry hash to identify the actual model. Use **Durchsuchen** to choose a custom STL or STEP. In the frequency table, **Bild** opens a 3D sketch and identifies whether it shows an observed final orientation or a catalog reference. [Bundled mesh source](https://github.com/match-BiBaZu/bibazu_geometry_to_pose/tree/02d3fbcfcdc86fcf09ddbe40f39e89a936130447/Werkst%C3%BCcke_STL_grob)
 
 **Simulation starten** starts a headless series. **Falltests sichtbar starten** plays the drops sequentially at about real time in one MuJoCo window. **Letzter Versuch** shows the latest result. Close the viewer or use **Abbrechen** to stop after the completed drops. Optional disturbance tests run headlessly.
 
 ```powershell
 # Headless series
-uv run --no-sync dashas-drop-sim run --config configs/dk1i-1000.json
+uv run --no-sync dashas-drop-sim run --config configs/gui-current.json
 
 # One visible trial
 uv run --no-sync dashas-drop-sim preview --config config.json --trial 0
@@ -46,9 +46,9 @@ uv run --no-sync dashas-drop-sim watch --config config.json
 
 ### Run a workpiece batch
 
-Under **Mehrere Werkstücke**, use **Mehrere Dateien laden** to select STL or STEP files, or **Aus Katalog laden** to select bundled workpieces. **Aktuelles Werkstück hinzufügen** adds the current model and roadmap. Each row can have its own roadmap. The GUI fills an unambiguous match automatically, and you can replace or clear it.
+Under **Mehrere Werkstücke**, use **Mehrere Dateien laden** to select STL or STEP files, or **Aus Katalog laden** to select bundled workpieces. **Aktuelles Werkstück hinzufügen** adds the current model. Each row can optionally specify its own observed pose catalogue; no downstream files are discovered or loaded.
 
-**Werkstück-Batch starten** freezes the shared parameters and processes the queue in order. Headless drops and disturbance tests use separate MuJoCo workers within each workpiece. A failed row is marked and processing continues. **Abbrechen** ends the current series and stops the queue. The batch folder `results/batch_<timestamp>/<number>_<workpiece>/run_*` contains the runs. The parent `batch.json` records settings, statuses, and output folders. Use **Ergebnisse** on a row to open its tables and select its roadmap.
+**Werkstück-Batch starten** freezes the shared parameters and processes the queue in order. Headless drops and disturbance tests use separate MuJoCo workers within each workpiece. A failed row is marked and processing continues. **Abbrechen** ends the current series and stops the queue. The batch folder `results/batch_<timestamp>/<number>_<workpiece>/run_*` contains the runs. The parent `batch.json` records settings, statuses, and output folders. Use **Ergebnisse** on a row to open its tables and select its observed pose catalogue.
 
 **Parallele Prozesse** controls the worker count. Each trial keeps its own seed and physics state. One worker runs serially. During a visible series, the setting applies only to disturbance tests. In a Qk1a example with eight drops over 1.3 m, elapsed time was 26.2 s with one worker and 13.2 s with four. The trial, frequency, and disturbance records matched byte for byte.
 
@@ -56,15 +56,32 @@ Under **Mehrere Werkstücke**, use **Mehrere Dateien laden** to select STL or ST
 
 Supply a closed, volume-bearing STL or STEP mesh **in millimetres**. The simulator reads STL directly and triangulates STEP through OpenCascade. It derives mass, centre of mass, and inertia from the mesh and a uniform density. MuJoCo uses convex collision bodies for concave shapes. Geometry quality metrics appear in `manifest.json`.
 
-Paths in a JSON configuration resolve relative to the configuration file. Omit `roadmap_path` or set it to `null` to run without a roadmap. Roadmap IDs depend on the original STL used to generate them. STEP triangulation changes the underlying catalog IDs. Unmatched orientations form separate groups. Matching considers detected symmetry and the catalog orientations associated with a roadmap pose. Ambiguous and distant orientations retain their own status. When the roadmap extra is absent, the manifest reports `symmetry_available: false`.
+Paths in a JSON configuration resolve relative to the configuration file. The optional `observed_catalog_path` supplies measured source orientations directly, with xyzw part-to-chute quaternions and explicit pose IDs. Without it, source poses are reconstructed from settled drops and detected workpiece symmetry. No downstream planning files are read or modified. Ambiguous and distant observations retain separate statuses. If the symmetry extra is absent, the manifest reports `symmetry_available: false`.
 
-### Conveyor speed
+### Conveyor mode and pose grouping
 
-The GUI accepts belt speeds of 0–200 mm/s. Set `belt_speed_mm_s` and `belt_speed_variation_mm_s` to zero for a stationary conveyor. At zero speed, the simulation ends after a fixed observation time. A moving run uses the virtual exit and offers the separate braking and rest check described below.
+**Bandbetrieb** selects a moving conveyor (**Laufend**) or a conveyor stationary from release (**Stillstehend ab Abwurf**). Stationary mode holds the belt at 0 mm/s, preserves the saved running speed and variation, and evaluates the drop after 10 s. The final half-second also checks longitudinal motion. Moving mode offers the separate braking and rest check at the virtual exit. Set `belt_mode` to `running` or `stopped` in JSON. Older configurations use the speed-based `auto` mode.
+
+**Posen gruppieren** selects the published observed-pose grouping procedure. It reconstructs symmetry-aware 5° source poses, keeps every measured reference orientation, and uses the first settled trial as its anchor unless a compatible observed catalogue is supplied. It then applies a 0.5 mm seated-lift barrier, a 60° whole-group diameter guard and 0.1° sampled shortest rotations. The 1% frequency cutoff is applied after aggregation.
+
+Grouped execution requires complete member disturbance curves. The GUI visibly enables **Zusätzliche Drehimpuls-Störkurven berechnen** while grouping is selected and includes the barrier level in the assessment. Controls expose `grouping_barrier_mm`, `grouping_max_angle_deg`, `grouping_minimum_frequency_percent` and an optional `observed_catalog_path`. `grouping_enabled` is accepted as a JSON alias for `group_poses`; conflicting explicit values are rejected.
+
+The standard assessment has levels 0, 0.05, 0.1, 0.2, 0.4, 0.5 and 0.8 mm: one zero-kick observation and twelve directions at each positive level, or **73 assessments per source member**. Retention must remain in the source group throughout the settled trace and at the final observation. Representatives use the branch's complete retention-AUC selection. Stability rank, original group ID and frequency-ranked display ID are separate fields.
+
+With `group_poses: false`, each settled drop receives its own row, preview and `trial_NNN` ID. Observed-catalogue matches remain reference metadata. Existing saved GUI preferences retain their physical parameters; grouping visibly requires assessment. Historical drop-only configurations can be run ungrouped or explicitly upgraded to complete assessment. Automatic catalogue publication is disabled for the restored grouping; representative catalogues are exported locally.
+
+To rebuild from an archived run without repeating drops:
+
+```powershell
+python -m dashas_drop_sim rebuild-groups --run-dir results/SAVED_RUN --output-dir results/NEW_ASSESSMENT
+```
+
+The output must be separate from the source. `source/` preserves the original files byte for byte, and new classifications go to `grouped_trials.jsonl`. Repeating the command resumes outstanding assessment jobs using validated mesh, configuration, observation and simulator-source hashes. A truncated final checkpoint line can be recovered; changed inputs or duplicate job IDs are rejected.
+
 
 ### Release settings
 
-The GUI accepts release heights of 0–200 mm and lateral offsets of ±100 mm from the bisector between the belt and wall. The default density of 1.15 g/cm³ is within the stated material range of 1.12–1.18 g/cm³. Set the belt and wall friction coefficients independently.
+The GUI accepts moving speeds of 0.1–200 mm/s, release heights of 0–200 mm, and lateral offsets of ±100 mm from the bisector between the belt and wall. The default density of 1.15 g/cm³ is within the stated material range of 1.12–1.18 g/cm³. Set the belt and wall friction coefficients independently.
 
 The release height and lateral position each have an optional uniform spread. For example, 100 ± 20 mm gives an 80–120 mm release height, and 0 ± 10 mm gives a −10 to +10 mm offset. Zero spread fixes the value. The full intervals must fit inside the GUI ranges. Separate seeded random streams make the draws reproducible across worker counts and preserve the orientation sequence. Disturbance curves start from an already settled pose.
 
@@ -75,7 +92,7 @@ The release height and lateral position each have an optional uniform spread. Fo
 ```json
 {
   "mesh_path": "C:/Workpieces/Qk1a.stl",
-  "roadmap_path": "C:/Workpieces/Qk1a_roadmap.yaml",
+  "observed_catalog_path": null,
   "output_dir": "C:/DropTests/Results",
   "trials": 100,
   "workers": 4,
@@ -107,6 +124,8 @@ The release height and lateral position each have an optional uniform spread. Fo
 ```
 
 ## Contact disturbances and solver settings
+
+Fresh GUI settings, the `gui-current` profile, and omitted CLI friction values use belt friction **0.10** and wall friction **0.05**. Physical values explicitly supplied in historical files remain unchanged. Grouping uses the restored published procedure and requires complete member assessment. Original trial fields remain in the raw files; new source-pose and basin classifications are exported separately. Display IDs start at 0 in descending simulated frequency, while original membership IDs and stability ranks remain available in the crosswalk.
 
 **Zufällige Kontaktstörungen** enables a statistical model of surface irregularities. The PTFE wall starts with a 0.1 mm maximum effective height, 3 mm effective edge length, and 10 mm mean spacing. The belt starts with zero effective height and has separate settings. The GUI defaults to single impulses with a free-body velocity change of 49.05 mm/s, a mean event interval of 0.2 s, and a one-second excitation window. Older CLI configurations with omitted disturbance fields keep disturbances disabled. When enabled, the selected model applies to drops and the optional disturbance tests.
 
@@ -158,6 +177,8 @@ Use `0` or **Ganzer Lauf** for excitation throughout the trial. This is also the
 
 ### Contact compliance and angular friction
 
+**Friction cone** selects `elliptic` or `pyramidal` contact friction. Fresh GUI settings and `configs/gui-current.json` use elliptic cones. The choice is saved with GUI defaults and written to each run configuration, manifest, and summary. Set `"friction_cone": "elliptic"` in CLI configurations to reproduce the elliptic-cone reruns. Existing saved settings and older CLI configurations without this field use pyramidal cones. Historical Dk1i and Kf1i profiles retain their recorded cone setting. The cone selection applies to serial, parallel, visible, and disturbance runs.
+
 `contact_damping_ratio` and `contact_time_constant_s` set MuJoCo's `solref`. A damping ratio of 1.2 is overdamped, 1 is critically damped, and values below 1 allow more rebound. A value such as 0.5 is a comparison setting. The time constant must be at least two simulation steps. Older configurations retain 1.2 and 5 ms when these fields are absent. [MuJoCo contact solver parameters](https://mujoco.readthedocs.io/en/3.14.0/modeling.html#solver-parameters)
 
 The torsional and rolling friction parameters are effective lengths, with legacy values of 5 mm and 0.1 mm. They describe resistance to contact rotation and can increase the stability of small workpieces. Set both to zero to retain sliding friction alone. [MuJoCo contact dimensions](https://mujoco.readthedocs.io/en/3.14.0/computation/index.html#condim)
@@ -188,7 +209,9 @@ The nominal speed is the first target. Subsequent targets are uniformly sampled 
 
 A separate seed stream keeps the target sequence independent of worker count and timestep. Each drop resets the sequence. A disturbance test starts its sequence after reseating. `belt_speed_control_points` contains time and speed, including the target needed for the final interpolation segment. Configuration and manifest files record the model, and the GUI can save its parameters as defaults. Belt acceleration can generate force and torque even in cases where pure rolling yields zero slip-driven roughness impulses.
 
-## Automatic pose catalog export
+## Legacy pose catalog export
+
+The following documents the retained legacy exporter for archived results. The restored grouping procedure disables automatic publication and writes assessed representatives locally under `representatives/`.
 
 Under **Posenkatalog automatisch aktualisieren**, select the local `BiBaZu_StableComponentenPoses` clone and the directory containing the original STL and STEP pairs. Enable export to create a commit for each completed workpiece. The separate automatic-push checkbox publishes those commits. **Alle 39 hinzufügen** queues all bundled workpieces. For drop tests alone, clear **Zusätzliche Drehimpuls-Störkurven berechnen**.
 
@@ -204,7 +227,7 @@ Each workpiece export includes the original STL and STEP, an illustrated README,
 
 When the rest check after braking is enabled, the catalog separately classifies settled rest poses using workpiece symmetry and the same 5° tolerance. See `poses_after_stop.json`, `poses_after_stop.yaml`, `frequencies_after_stop.csv`, and `trials_after_stop.csv`. The trial table includes parts still moving and parts that failed to reach the exit. Rest pose IDs contain `_stop_` and use the separate `pose_registry_after_stop.json`. The primary denominator is all drops, and the output also reports shares among arrivals and among settled rest poses. Re-export can add missing classifications to an existing run using its saved observations.
 
-`pose_registry.json` reserves catalog IDs across runs, including IDs for poses absent from the latest run. Orientations are grouped under detected workpiece symmetry, and a roadmap can provide an additional reference. The exported catalog can recognise orientations independently.
+`pose_registry.json` reserves catalog IDs across runs, including IDs for poses absent from the latest run. Orientations are grouped under detected workpiece symmetry, and an observed pose catalogue can provide an additional reference. The exported catalog can recognise orientations independently.
 
 ```python
 from dashas_drop_sim.catalog_export import recognize_pose
@@ -242,7 +265,7 @@ Each series creates a directory named `run_<UTC-timestamp>_<seed>` under `output
 
 A single-trial preview writes `config.json`, `manifest.json`, and `preview.json` to its own folder. Frequency results include representative orientations for the GUI's pose images.
 
-The moving settlement check looks for stable support and orientation over an observation window while allowing travel along the belt. Unsettled, stalled, and ambiguous outcomes appear separately. Disturbance tests use twelve repeatable directions per positive strength and one baseline run at 0 mm. Strength is an equivalent lifting height in millimetres, with rotational energy `mass × 9.81 m/s² × lifting height`. The curve measures pose retention at the end and at settled intermediate points. Its normalized area gives a relative ranking, with the user choosing any acceptance threshold. A normal simulation reads the roadmap and preserves its air-impulse transitions.
+The moving settlement check looks for stable support and orientation over an observation window while allowing travel along the belt. Unsettled, stalled, and ambiguous outcomes appear separately. Disturbance tests use twelve repeatable directions per positive strength and one baseline run at 0 mm. Strength is an equivalent lifting height in millimetres, with rotational energy `mass × 9.81 m/s² × lifting height`. The curve measures pose retention at the end and at settled intermediate points. Its normalized area gives a relative ranking, with the user choosing any acceptance threshold.
 
 ### Rest check after belt braking
 
@@ -252,17 +275,25 @@ The moving settlement check looks for stable support and orientation over an obs
 
 The post-braking measurement is stored under `stop_observation` in `trials.jsonl`, in `stop_observations.csv`, and under `belt_stop_observation` in `summary.json`. Moving frequencies and disturbance rankings use their original moving observations. Set `belt_stop_enabled`, `belt_stop_ramp_s`, and `belt_stop_observation_s` in JSON. Legacy configurations with these fields omitted keep the additional rest check off.
 
-### Renumber roadmap poses by frequency
-
-Use **YAML und JSON nach Häufigkeit neu nummerieren** with a completed run's `summary.json` to reorder IDs in the matching YAML and JSON roadmap pair. The run must use that exact roadmap version. Pose 0 becomes the most frequently observed roadmap pose. Other poses follow by descending count, ties use the previous ID, and zero-count poses appear last. Unmatched and unsettled observations remain outside the roadmap. The process retains robust and metastable classifications and updates pose lists and transitions in both files.
-
-The save dialog suggests `_frequency_ordered` filenames. Overwriting the original pair creates `.bak.<timestamp>` backups beside the files. Existing run records retain the IDs in use at the time of simulation.
 
 ## Physical assumptions and limits
 
 - The virtual chute defaults to 45° transverse inclination and 0° longitudinal inclination. The engine's legacy observation length is 1.3 m, and the current GUI profile uses 500 mm. Pose incidence depends on observation length and the release distribution, so compare runs with the same settings.
 - The PE belt and PTFE wall each extend 15 cm from the common corner to the free edge. The idealized contact surfaces keep lateral falls outside the modeled outcomes.
-- MuJoCo's tangential `surfacevel` moves the PE belt while the PTFE wall stays stationary. The starting friction coefficients of 0.40 for the belt and 0.20 for the wall are simulation assumptions. Use physical sliding and drop tests to calibrate both contacts.
+- MuJoCo's tangential `surfacevel` moves the PE belt while the PTFE wall stays stationary. The current friction coefficients of 0.10 for the belt and 0.05 for the wall are simulation assumptions. Use physical sliding and drop tests to calibrate both contacts.
 - Workpieces are rigid solids with uniform density. Check sensitivity to convex collision decomposition and timestep for the workpieces and conditions of interest.
 
-In an earlier Qk1a check on a 3 m observation length, runs at 1 ms and 0.5 ms used the same ten seeds. Eight of ten paired drops had the same roadmap ID, all 20 drops settled, and the count for each pose differed by at most one. A larger sample and finer-step comparison are needed to assess convergence of the pose distribution. The observed frequencies describe the specified release orientation distribution, drop point, height, and offset.
+In an earlier Qk1a check on a 3 m observation length, runs at 1 ms and 0.5 ms used the same ten seeds. Eight of ten paired drops had the same observed orientation class, all 20 drops settled, and the count for each pose differed by at most one. A larger sample and finer-step comparison are needed to assess convergence of the pose distribution. The observed frequencies describe the specified release orientation distribution, drop point, height, and offset.
+
+## Published grouped assessment outputs
+
+- `original_observations.json`: first-trial or supplied anchors and every measured reference orientation.
+- `grouping_geometry.json`: sampled barriers, directed basin memberships and review flags.
+- `group_members.json`: all source members, trial IDs, orientations and AUCs.
+- `groups.json`: published IDs, frequency-ranked display IDs, stability ranks and assessed representatives.
+- `group_disturbances.jsonl` and `assessment_checkpoint.json`: resumable assessment records and input/source checksums.
+- `group_stability.csv`, `group_stability_summary.csv` and `group_frequencies.csv`: complete curves, ranking and incidence.
+- `grouped_trials.jsonl`: original trial fields plus source-pose classification, published group, display group and matching status.
+- `representatives/`: the branch-compatible assessed representative catalogue and its original STL.
+
+The comparison plotter consumes these simulator exports directly. It shows all member orientations and orders boxes by simulated frequency; it does not calculate group membership.

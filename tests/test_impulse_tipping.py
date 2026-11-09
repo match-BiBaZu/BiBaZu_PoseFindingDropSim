@@ -54,7 +54,7 @@ def run_controlled_tipping(
     config = RunConfig(
         mesh_path=source, output_dir=source.parent,
         catalog_repo=None, catalog_cad_dir=None, catalog_push=False,
-        compute_stability=False, workers=1, trials=1,
+        compute_stability=False, group_poses=False, workers=1, trials=1,
         alpha_deg=45, beta_deg=0, length_mm=1300,
         belt_speed_mm_s=100, belt_speed_variation_mm_s=0, drop_height_mm=0,
         mu_belt=0.4, mu_wall=0.2,

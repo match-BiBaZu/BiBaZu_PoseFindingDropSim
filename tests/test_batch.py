@@ -13,7 +13,7 @@ import pytest
 from PyQt6.QtCore import QProcess
 from PyQt6.QtWidgets import QApplication, QFileDialog, QLineEdit, QMessageBox
 
-from dashas_drop_sim.batch import Workpiece, batch_configs, find_roadmap
+from dashas_drop_sim.batch import Workpiece, batch_configs
 from dashas_drop_sim.config import RunConfig
 from dashas_drop_sim import gui
 
@@ -27,20 +27,19 @@ def _models(tmp_path, names):
     return paths
 
 
-def test_configs_keep_per_workpiece_roadmaps_and_unique_outputs(tmp_path):
+def test_configs_keep_per_workpiece_pose_catalogues_and_unique_outputs(tmp_path):
     first, second = _models(tmp_path, ["first", "second"])
-    roadmap = tmp_path / "first_roadmap.yaml"
-    roadmap.write_text("poses: []", encoding="utf-8")
-    base = RunConfig(first, trials=12, workers=3, seed=77, roadmap_path=roadmap,
+    pose_catalogue = tmp_path / "first_pose_catalogue.yaml"
+    pose_catalogue.write_text("poses: []", encoding="utf-8")
+    base = RunConfig(first, trials=12, workers=3, seed=77, observed_catalog_path=pose_catalogue,
                      drop_height_spread_mm=20, lateral_spread_mm=10)
-    configs = batch_configs(base, [Workpiece(first, roadmap), Workpiece(second)], tmp_path / "batch")
+    configs = batch_configs(base, [Workpiece(first, pose_catalogue), Workpiece(second)], tmp_path / "batch")
 
-    assert [config.roadmap_path for config in configs] == [roadmap, None]
+    assert [config.observed_catalog_path for config in configs] == [pose_catalogue, None]
     assert len({config.output_dir for config in configs}) == 2
     assert all((config.trials, config.workers, config.seed) == (12, 3, 77) for config in configs)
     assert all((config.drop_height_spread_mm, config.lateral_spread_mm) == (20, 10) for config in configs)
     assert base.output_dir == Path("results")
-    assert find_roadmap(first) == roadmap
 
 
 def test_entire_queue_is_validated_before_run(tmp_path):
@@ -111,7 +110,7 @@ def test_multiple_file_dialog_populates_queue_and_avoids_duplicates(window, tmp_
     view.batch_add_files_button.click()
     assert view.batch_table.rowCount() == 2
     view.batch_table.cellWidget(0, 1).findChild(QLineEdit).setText(str(tmp_path / "custom.yaml"))
-    assert view._queued_workpieces()[0].roadmap_path == tmp_path / "custom.yaml"
+    assert view._queued_workpieces()[0].observed_catalog_path == tmp_path / "custom.yaml"
     assert view.batch_start_button.isEnabled()
 
 

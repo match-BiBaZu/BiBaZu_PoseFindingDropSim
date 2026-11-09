@@ -19,7 +19,7 @@ dependencies = [
 [project.optional-dependencies]
 gui = ["PyQt6>=6.7,<7"]
 step = ["cadquery-ocp>=7.8,<8"]
-roadmap = ["bibazu-chute-pose @ git+https://github.com/match-BiBaZu/bibazu_geometry_to_pose.git@94cffbca9e4a227beea266bb098f8186e1d1029d"]
+symmetry = ["bibazu-chute-pose @ git+https://github.com/match-BiBaZu/bibazu_geometry_to_pose.git@94cffbca9e4a227beea266bb098f8186e1d1029d"]
 dev = ["pytest>=8,<10"]
 
 [project.scripts]

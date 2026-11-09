@@ -15,7 +15,7 @@ from .config import RunConfig
 from .geometry import prepare_part
 from .physics import ChuteSimulator
 from .pose_matching import PoseResolver
-from .runner import _new_run_dir, _write_json, build_manifest, run_experiment
+from .runner import SETTLED_STATUSES, _new_run_dir, _pose_key, _write_json, build_manifest
 
 
 def _emit(event: dict) -> None:
@@ -27,7 +27,7 @@ def _config(path: Path) -> RunConfig:
     raw = json.loads(path.read_text(encoding="utf-8-sig"))
     if not isinstance(raw, dict):
         raise ValueError("Configuration JSON must contain an object.")
-    for key in ("mesh_path", "roadmap_path", "output_dir", "catalog_repo", "catalog_cad_dir"):
+    for key in ("mesh_path", "output_dir", "catalog_repo", "catalog_cad_dir", "observed_catalog_path"):
         if raw.get(key) is not None and not Path(raw[key]).expanduser().is_absolute():
             raw[key] = str((path.parent / Path(raw[key]).expanduser()).resolve())
     return RunConfig.from_dict(raw)
@@ -57,22 +57,28 @@ def _preview(config: RunConfig, trial_index: int, *, visible: bool, stopped: thr
     run_dir = _new_run_dir(config.output_dir, config.seed)
     _write_json(run_dir / "config.json", config.to_dict())
     part = prepare_part(config.mesh_path, config.output_dir / ".mesh_cache", config.density_g_cm3)
-    resolver = PoseResolver(part.catalog_mesh_path, config.roadmap_path,
-                            original_mesh_path=config.mesh_path,
-                            cache_dir=config.output_dir / ".pose_cache")
+    if config.observed_catalog_path is not None:
+        from .observed import ObservedPoseResolver
+        resolver = ObservedPoseResolver(part.catalog_mesh_path, config.observed_catalog_path)
+    else:
+        resolver = PoseResolver(part.catalog_mesh_path,
+                                original_mesh_path=config.mesh_path,
+                                cache_dir=config.output_dir / ".pose_cache")
     _write_json(run_dir / "manifest.json", build_manifest(config, part, resolver))
     simulator = ChuteSimulator(config, part)
     child = np.random.SeedSequence(config.seed).spawn(trial_index + 1)[-1]
     trial_seed = int(child.generate_state(1, dtype=np.uint32)[0])
     outcome = simulator.drop(trial_index, trial_seed, preview=visible, cancel=stopped.is_set)
-    match = resolver.resolve(outcome.final_quat_xyzw) if outcome.status in {"settled", "settled_stationary"} else None
+    match = resolver.resolve(outcome.final_quat_xyzw) if outcome.status in SETTLED_STATUSES else None
     record = outcome.to_dict()
     record["match_status"] = match.status if match else "not_evaluated"
-    record["roadmap_pose_id"] = match.pose_id if match else None
+    record["reference_pose_id"] = match.pose_id if match else None
     record["match_distance_deg"] = match.distance_deg if match else None
+    if not config.group_poses:
+        record["pose_key"] = _pose_key(record, group_poses=False)
     _write_json(run_dir / "preview.json", record)
     _emit({"event": "done", "run_dir": str(run_dir),
-           "message": f"Einzelfall: {outcome.status}, Roadmap-Pose: {match.pose_id if match and match.pose_id is not None else 'keine'}"})
+           "message": f"Einzelfall: {outcome.status}, Observed pose reference: {match.pose_id if match and match.pose_id is not None else 'keine'}"})
     return 130 if stopped.is_set() else 0
 
 
@@ -80,6 +86,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="BiBaZu MuJoCo fall test simulation")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("gui", help="Start the PyQt6 user interface")
+    rebuild_parser = commands.add_parser("rebuild-groups", help="Assess published groups from saved drops without rerunning drops")
+    rebuild_parser.add_argument("--run-dir", type=Path, required=True)
+    rebuild_parser.add_argument("--output-dir", type=Path, required=True)
+    rebuild_parser.add_argument("--mesh", type=Path)
+    rebuild_parser.add_argument("--cache-dir", type=Path)
     catalogue_parser = commands.add_parser("catalog-batch", help="Run/resume all 39 workpieces and publish the catalogue")
     catalogue_parser.add_argument("--config", type=Path, required=True)
     export_parser = commands.add_parser("export", help="Export a completed run without resimulating")
@@ -100,6 +111,13 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "gui":
             from .gui import main as gui_main
             return gui_main()
+        if args.command == "rebuild-groups":
+            from .grouped_rebuild import rebuild_saved_run
+            stopped = _cancel_event()
+            summary = rebuild_saved_run(args.run_dir, args.output_dir, mesh_path=args.mesh,
+                                        cache_dir=args.cache_dir, emit=_emit, cancel=stopped.is_set)
+            _emit({"event": "grouping_done", "run_dir": str(args.output_dir), "summary": summary})
+            return 0 if summary["group_assessment_complete"] else 130
         if args.command == "export":
             from .catalog_export import export_run
             outcome = export_run(args.run_dir, args.catalog_repo, cad_dir=args.cad_dir, push=not args.no_push)

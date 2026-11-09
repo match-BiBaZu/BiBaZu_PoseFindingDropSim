@@ -8,7 +8,7 @@ from pathlib import Path
 from .config import RunConfig
 
 
-INPUT_KEYS = ("mesh_path", "roadmap_path", "output_dir", "catalog_repo", "catalog_cad_dir")
+INPUT_KEYS = ("mesh_path", "output_dir", "catalog_repo", "catalog_cad_dir", "observed_catalog_path")
 PARAMETER_KEYS = frozenset(field.name for field in fields(RunConfig)) - frozenset(INPUT_KEYS)
 PACKAGED_SETTINGS_PATH = Path(__file__).resolve().parent / "assets" / "gui_defaults.json"
 
@@ -28,6 +28,7 @@ def _validated(parameters: dict, inputs: dict) -> dict:
         raise ValueError("Die gespeicherten GUI-Einstellungen sind ungültig.")
     parameters = {name: value for name, value in parameters.items() if name in PARAMETER_KEYS}
     config = RunConfig(mesh_path=Path("unused.stl"), **parameters)
+    config.compute_stability = config.compute_stability or config.group_poses
     config.validate_parameters()
     if any(not isinstance(value, str) for name, value in inputs.items() if name in INPUT_KEYS):
         raise ValueError("Gespeicherte Datei- und Ordnerpfade müssen Text sein.")

@@ -34,7 +34,8 @@ def rough_cube(tmp_path, request):
     trimesh.creation.box(extents=[20, 20, 20]).export(path)
     part = prepare_part(path, tmp_path / "cache", 1.15)
     config = RunConfig(mesh_path=path, output_dir=tmp_path / "results", length_mm=300,
-                       drop_height_mm=0, workers=1, roughness_enabled=True, roughness_model=request.param)
+                       drop_height_mm=0, workers=1, roughness_enabled=True, roughness_model=request.param,
+                       mu_belt=0.4, mu_wall=0.2)  # Fixed historical regression conditions.
     config.validate()
     return config, part
 

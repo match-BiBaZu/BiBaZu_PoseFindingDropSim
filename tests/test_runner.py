@@ -41,6 +41,7 @@ def _short_config(source: Path, *, output_dir: Path | None = None) -> RunConfig:
         drop_height_mm=0,
         length_mm=500,
         disturbance_levels_mm=(0,),
+        group_poses=False,
     )
 
 
@@ -68,13 +69,16 @@ def test_stop_observation_export_is_separate_from_transport(cube: Path):
 
 
 def test_short_real_cube_run_persists_unknown_pose_and_outputs(cube: Path) -> None:
-    result = run_experiment(_short_config(cube))
+    config = _short_config(cube)
+    config.group_poses = True
+    result = run_experiment(config)
     run_dir = result.run_dir
     for filename in (
         "config.json", "manifest.json", "trials.jsonl", "trials.csv",
         "frequencies.csv", "disturbances.csv", "stability.csv",
         "stability_summary.csv", "summary.json",
         "roughness_events.csv", "roughness_events.jsonl",
+        "groups.json",
     ):
         assert (run_dir / filename).is_file(), filename
 
@@ -84,21 +88,55 @@ def test_short_real_cube_run_persists_unknown_pose_and_outputs(cube: Path) -> No
     assert trial_csv[0]["status"] == trial_jsonl[0]["status"] == "settled"
     assert trial_csv[0]["match_status"] == trial_jsonl[0]["match_status"] == "unmatched"
     assert trial_csv[0]["pose_key"] == trial_jsonl[0]["pose_key"] == "unknown_001"
-    assert trial_jsonl[0]["roadmap_pose_id"] is None
+    assert trial_jsonl[0]["reference_pose_id"] is None
+    assert trial_jsonl[0]["group_id"] is None
+    assert trial_csv[0]["group_id"] == ""
+    membership = json.loads((run_dir / "groups.json").read_text())
+    assert membership["assessment_complete"]
+    assert membership["groups"][0]["pose_id"] == "group_000"
+    assert membership["groups"][0]["group_id"] == 0
+    assert membership["groups"][0]["members"] == ["cube_0001"]
+    assert membership["groups"][0]["member_trial_ids"] == [0]
+    classified = json.loads((run_dir / "grouped_trials.jsonl").read_text())
+    assert classified["published_group_id"] == "group_000" and classified["display_group_id"] == 0
+
 
     frequencies = _csv_rows(run_dir / "frequencies.csv")
     assert len(frequencies) == 1
-    assert frequencies[0]["pose_id"] == "unknown_001"
+    assert frequencies[0]["pose_id"] == "group_000"
     assert int(frequencies[0]["count"]) == 1
+    assert frequencies[0]["group_id"] == "0"
     assert float(frequencies[0]["probability"]) == 1
     assert result.summary["completed_trials"] == result.summary["settled_trials"] == 1
-    assert result.summary["pose_frequencies"][0]["pose_id"] == "unknown_001"
+    assert result.summary["pose_frequencies"][0]["pose_id"] == "group_000"
     assert "0.5 m" in result.summary["interpretation"]
     manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["mesh_source_sha256"]
     assert manifest["mesh_triangles_sha256"]
-    assert manifest["roadmap_sha256"] is None
-    assert result.summary["disturbance_trials"] == 1
+    assert manifest["observed_catalog_sha256"] is None
+    assert result.summary["group_disturbance_trials"] == 13
+
+
+def test_ungrouped_trials_keep_separate_poses_with_the_same_pose_catalogue_id(cube, monkeypatch):
+    from dashas_drop_sim.pose_matching import PoseResolver
+
+    monkeypatch.setattr(PoseResolver, "resolve", lambda self, quat: PoseMatch("matched", 0, 0))
+    monkeypatch.setattr(PoseResolver, "cluster_unmatched",
+                        lambda *_args: pytest.fail("Ungrouped trials must bypass clustering"))
+    config = _short_config(cube)
+    config.trials = 2
+    config.group_poses = config.compute_stability = False
+    result = run_experiment(config)
+    trials = _csv_rows(result.run_dir / "trials.csv")
+    assert [row["pose_key"] for row in trials] == ["trial_000", "trial_001"]
+    assert [row["reference_pose_id"] for row in trials] == ["0", "0"]
+    assert [(row["pose_id"], row["count"]) for row in result.summary["pose_frequencies"]] == [
+        ("trial_000", 1), ("trial_001", 1),
+    ]
+    assert all(row["representative_quat_xyzw"] for row in result.summary["pose_frequencies"])
+    assert all(row["group_id"] == "" for row in trials)
+    assert not (result.run_dir / "groups.json").exists()
+
 
 
 def test_same_seed_repeats_release_and_end_state(cube: Path) -> None:
@@ -113,12 +151,15 @@ def test_same_seed_repeats_release_and_end_state(cube: Path) -> None:
     assert first.summary["pose_frequencies"] == second.summary["pose_frequencies"]
 
 
+@pytest.mark.parametrize("friction_cone", ["pyramidal", "elliptic"])
 @pytest.mark.parametrize("roughness_enabled,roughness_model", [(False, "longitudinal_traction"),
                         (True, "longitudinal_traction"), (True, "weight_force"), (True, "weight_impulse")])
-def test_parallel_drops_match_serial_seeded_results(cube: Path, roughness_enabled: bool, roughness_model: str) -> None:
+def test_parallel_drops_match_serial_seeded_results(cube: Path, roughness_enabled: bool,
+                                                   roughness_model: str, friction_cone: str) -> None:
     serial_config = _short_config(cube, output_dir=cube.parent / "serial")
     serial_config.trials = 2
     serial_config.workers = 1
+    serial_config.friction_cone = friction_cone
     serial_config.roughness_enabled = roughness_enabled
     serial_config.roughness_model = roughness_model
     serial_config.belt_speed_variation_mm_s = 3
@@ -128,6 +169,7 @@ def test_parallel_drops_match_serial_seeded_results(cube: Path, roughness_enable
     parallel_config = _short_config(cube, output_dir=cube.parent / "parallel")
     parallel_config.trials = 2
     parallel_config.workers = 2
+    parallel_config.friction_cone = friction_cone
     parallel_config.roughness_enabled = roughness_enabled
     parallel_config.roughness_model = roughness_model
     parallel_config.belt_speed_variation_mm_s = 3
@@ -154,6 +196,7 @@ def test_parallel_drops_match_serial_seeded_results(cube: Path, roughness_enable
     trial_csv = _csv_rows(serial.run_dir / "trials.csv")
     assert float(trial_csv[0]["actual_drop_height_mm"]) == serial_rows[0]["actual_drop_height_mm"]
     manifest = json.loads((serial.run_dir / "manifest.json").read_text())
+    assert manifest["friction_cone"] == friction_cone
     assert manifest["release_distribution"]["drop_height_range_mm"] == [10, 30]
     assert manifest["belt_speed_variation"]["speed_range_mm_s"] == [97, 103]
     assert json.loads(trial_csv[0]["belt_speed_control_points"]) == serial_rows[0]["belt_speed_control_points"]
@@ -343,13 +386,13 @@ def test_cancel_after_one_trial_preserves_completed_trial(cube: Path) -> None:
     assert result.summary["cancelled"] is True
     assert result.summary["completed_trials"] == len(records) == 1
     assert result.summary["disturbance_trials"] == 0
-    assert records[0]["pose_key"] == "unknown_001"
+    assert records[0]["pose_key"] == "trial_000"
 
 
 def test_unsettled_trial_is_counted_without_pose_assignment() -> None:
     row = {
         "status": "unsettled", "match_status": "not_evaluated",
-        "roadmap_pose_id": None, "pose_key": None,
+        "reference_pose_id": None, "pose_key": None,
         "final_quat_xyzw": [0, 0, 0, 1],
     }
 
@@ -362,15 +405,15 @@ def test_unsettled_trial_is_counted_without_pose_assignment() -> None:
     frequencies = _frequency_rows([row], total=1)
     assert row["pose_key"] is None
     assert frequencies == [{
-        "pose_id": "unsettled", "category": "unassigned", "count": 1,
+        "pose_id": "unsettled", "group_id": None, "category": "unassigned", "count": 1,
         "probability": 1.0, "ci_low": pytest.approx(0.20654931437723745),
         "ci_high": 1.0,
     }]
 
 
-def test_unknown_disturbance_reaching_known_roadmap_pose_is_not_retained() -> None:
+def test_unknown_disturbance_reaching_known_pose_catalogue_pose_is_not_retained() -> None:
     source = {
-        "match_status": "unmatched", "roadmap_pose_id": None,
+        "match_status": "unmatched", "reference_pose_id": None,
         "final_quat_xyzw": [0, 0, 0, 1],
     }
     outcome = SimpleNamespace(status="settled", final_quat_xyzw=(0.02, 0, 0, 0.9998))
@@ -386,7 +429,7 @@ def test_unknown_disturbance_reaching_known_roadmap_pose_is_not_retained() -> No
 
 
 def test_stable_intermediate_pose_change_counts_as_lost_even_if_end_returns() -> None:
-    source = {"match_status": "matched", "roadmap_pose_id": 3,
+    source = {"match_status": "matched", "reference_pose_id": 3,
               "final_quat_xyzw": [0, 0, 0, 1]}
     outcome = SimpleNamespace(
         status="settled", final_quat_xyzw=(0, 0, 0, 1),
@@ -400,9 +443,9 @@ def test_stable_intermediate_pose_change_counts_as_lost_even_if_end_returns() ->
     assert _same_pose(source, outcome, TwoPoses()) is False
 
 
-def test_known_roadmap_pose_without_hits_has_zero_count_and_interval() -> None:
+def test_known_pose_catalogue_pose_without_hits_has_zero_count_and_interval() -> None:
     rows = [{"status": "unsettled", "match_status": "not_evaluated",
-             "roadmap_pose_id": None, "pose_key": "unsettled"}]
+             "reference_pose_id": None, "pose_key": "unsettled"}]
     frequencies = _frequency_rows(rows, total=1, known_pose_ids=(3,))
     zero = next(row for row in frequencies if row["pose_id"] == "3")
     assert zero["category"] == "pose"

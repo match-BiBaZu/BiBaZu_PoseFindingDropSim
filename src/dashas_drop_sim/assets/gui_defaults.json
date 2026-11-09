@@ -4,6 +4,9 @@
     "trials": 100,
     "workers": 4,
     "seed": 42,
+    "friction_cone": "elliptic",
+    "belt_mode": "running",
+    "group_poses": true,
     "belt_speed_mm_s": 100.0,
     "belt_speed_variation_mm_s": 3.0,
     "belt_variation_interval_s": 0.2,
@@ -12,8 +15,8 @@
     "lateral_mm": 0.0,
     "lateral_spread_mm": 0.0,
     "density_g_cm3": 1.15,
-    "mu_belt": 0.4,
-    "mu_wall": 0.2,
+    "mu_belt": 0.1,
+    "mu_wall": 0.05,
     "alpha_deg": 45.0,
     "beta_deg": 0.0,
     "length_mm": 500.0,
@@ -31,7 +34,7 @@
     "roughness_belt_ramp_mm": 3.0,
     "roughness_wall_spacing_mm": 10.0,
     "roughness_belt_spacing_mm": 10.0,
-    "compute_stability": false,
+    "compute_stability": true,
     "catalog_push": false,
     "roughness_enabled": true,
     "roughness_model": "weight_impulse",
@@ -47,7 +50,10 @@
     "roughness_active_duration_s": 1.0,
     "belt_stop_enabled": true,
     "belt_stop_ramp_s": 0.2,
-    "belt_stop_observation_s": 2.0
+    "belt_stop_observation_s": 2.0,
+    "grouping_barrier_mm": 0.5,
+    "grouping_max_angle_deg": 60.0,
+    "grouping_minimum_frequency_percent": 1.0
   },
   "inputs": {}
 }

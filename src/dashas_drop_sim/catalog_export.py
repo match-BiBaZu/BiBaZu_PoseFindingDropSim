@@ -19,6 +19,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 import yaml
 
+from .config import RunConfig
 from .catalog import catalog_models
 from .pose_matching import PoseResolver
 from .runner import SETTLED_STATUSES, _write_csv, _write_json, wilson_interval
@@ -296,7 +297,7 @@ def _upgrade_stop_catalogue(run_dir: Path, repo: Path, target: Path, rows: list[
     (staged / ".gitattributes").write_text("* -text\n", encoding="utf-8")
     transport = _read(staged / "poses.json")
     stl = staged / transport["geometry"]["stl"]
-    resolver = PoseResolver(stl, None, cache_dir=run_dir.parent / ".pose_cache")
+    resolver = PoseResolver(stl, cache_dir=run_dir.parent / ".pose_cache")
     descriptor = transport["recognition"]
     resolver._symmetry_quats = np.asarray(descriptor["symmetry_quaternions_xyzw"])
     axis = descriptor["continuous_axis_part"]
@@ -330,6 +331,8 @@ def _export_run(run_dir: Path, repo: Path, *, cad_dir: Path | None = None, push:
     if Path(git(repo, "rev-parse", "--show-toplevel")).resolve() != repo:
         raise ValueError("Bitte den Stammordner des Ergebnis-Repos wählen.")
     config, summary, manifest = (_read(run_dir / name) for name in ("config.json", "summary.json", "manifest.json"))
+    if not config.get("group_poses", True):
+        raise ValueError("Der Katalogexport benötigt gruppierte Posen.")
     if summary["cancelled"] or summary["completed_trials"] != summary["requested_trials"]:
         raise ValueError("Nur vollständig abgeschlossene Fallserien werden in den Katalog übernommen.")
     rows = [json.loads(line) for line in (run_dir / "trials.jsonl").read_text(encoding="utf-8").splitlines() if line]
@@ -379,10 +382,10 @@ def _build_export(run_dir, repo, target, stl, step, rows, config, summary, manif
                 else {"schema_version": 1, "mesh_sha256": sha256(stl), "entries": [], "next_id": 1})
     if registry["mesh_sha256"] != sha256(stl):
         raise ValueError("Geändertes STL benötigt einen eigenen Werkstücknamen, damit Pose-IDs eindeutig bleiben.")
-    resolver = PoseResolver(stl, None, cache_dir=run_dir.parent / ".pose_cache")
+    resolver = PoseResolver(stl, cache_dir=run_dir.parent / ".pose_cache")
     descriptor = manifest.get("recognition", resolver.recognition_descriptor())
     if not descriptor["symmetry_available"]:
-        raise ValueError("Der Katalogexport benötigt die installierte Roadmap-/Symmetrie-Abhängigkeit.")
+        raise ValueError("Der Katalogexport benötigt die installierte Symmetrie-Abhängigkeit.")
     # Reproduce the recorded symmetry, even if the local dependency was updated.
     resolver._symmetry_quats = np.asarray(descriptor["symmetry_quaternions_xyzw"])
     axis = descriptor["continuous_axis_part"]
@@ -410,7 +413,7 @@ def _build_export(run_dir, repo, target, stl, step, rows, config, summary, manif
         low, high = wilson_interval(count, len(rows))
         pose_id = identity["id"]
         refs = sorted({tuple(r["final_quat_xyzw"]) for r in group})
-        roadmap_ids = sorted({r["roadmap_pose_id"] for r in group if r.get("roadmap_pose_id") is not None})
+        reference_ids = sorted({r["reference_pose_id"] for r in group if r.get("reference_pose_id") is not None})
         quaternion = first["final_quat_xyzw"]
         position = first["final_pos_chute_mm"]
         transform = np.eye(4)
@@ -422,8 +425,8 @@ def _build_export(run_dir, repo, target, stl, step, rows, config, summary, manif
                 "reference_quaternions_xyzw": [list(q) for q in refs],
                 "position_com_chute_mm": position, "transform_chute_from_source_mm": transform.tolist(),
                 "representative_trial": first["trial"], "trial_ids": [r["trial"] for r in group],
-                "roadmap_pose_ids": roadmap_ids,
-                "roadmap_match_statuses": sorted({r.get("match_status", "unmatched") for r in group}),
+                "reference_pose_ids": reference_ids,
+                "reference_match_statuses": sorted({r.get("match_status", "unmatched") for r in group}),
                 "image": f"images/{pose_id}.png"}
         image = render_pose_image(stl, manifest["center_mass_source_mm"], quaternion, position)
         if not image.save(str(staged / item["image"]), "PNG"):
@@ -449,18 +452,12 @@ def _build_export(run_dir, repo, target, stl, step, rows, config, summary, manif
     _write_json(staged / "poses.json", catalogue)
     (staged / "poses.yaml").write_text(yaml.safe_dump(catalogue, allow_unicode=True, sort_keys=False), encoding="utf-8")
     _write_json(staged / "pose_registry.json", registry)
-    portable = {k: v for k, v in config.items() if k not in {"catalog_repo", "catalog_cad_dir", "catalog_push"}}
-    portable.update(mesh_path=f"{name}.stl", output_dir="./local_results", roadmap_path=None)
-    if config.get("roadmap_path"):
-        roadmap = Path(config["roadmap_path"])
-        if sha256(roadmap) != manifest["roadmap_sha256"]:
-            raise ValueError("Roadmap wurde seit der Simulation verändert.")
-        shutil.copyfile(roadmap, staged / ("roadmap" + roadmap.suffix))
-        portable["roadmap_path"] = "roadmap" + roadmap.suffix
+    portable = {k: v for k, v in config.items() if k in RunConfig.__dataclass_fields__ and k not in {"catalog_repo", "catalog_cad_dir", "catalog_push"}}
+    portable.update(mesh_path=f"{name}.stl", output_dir="./local_results")
     _write_json(staged / "config.json", portable)
     portable_manifest = {k: v for k, v in manifest.items() if k != "catalog_mesh_path"}
     _write_json(staged / "manifest.json", portable_manifest)
-    fields = ["trial", "seed", "status", "pose_id", "match_status", "roadmap_pose_id",
+    fields = ["trial", "seed", "status", "pose_id", "match_status", "reference_pose_id",
               "initial_quat_xyzw", "final_quat_xyzw", "final_pos_chute_mm", "sim_time_s",
               "actual_drop_height_mm", "actual_lateral_mm", "initial_pos_chute_mm", "roughness_impulse_count", "stop_observation"]
     _write_csv(staged / "trials.csv", fields, [{**r, "pose_id": trial_ids.get(r["trial"])} for r in rows])
