@@ -1,10 +1,10 @@
-# Dashas Drop Sim
+# BiBaZu_PoseFindingDropSim
 
 **Reproducible rigid-body drop tests and stable-pose generation for the BiBaZu L-shaped conveyor chute.**
 
-Dashas Drop Sim uses MuJoCo to simulate individual workpieces landing against a conveyor belt and side wall. It estimates pose incidence, distinguishes settled and unsettled outcomes, and assesses how observed poses respond to disturbances. A PyQt6 GUI supports parameter studies and visible trials; the command line supports repeatable batches and assessment of saved results.
+The simulator uses MuJoCo to simulate individual workpieces landing against a conveyor belt and side wall. It estimates pose incidence, distinguishes settled and unsettled outcomes, and assesses how observed poses respond to disturbances. A PyQt6 GUI supports parameter studies and visible trials; the command line supports repeatable batches and assessment of saved results.
 
-This README describes the current simulator and the **7–8 November 2026 Beckhoff benchmark: 10,000 moving and 10,000 stationary trials for each of 12 workpieces, totalling 240,000 drops**. The measured benchmark settings and durations below are intended to support the CIRP Conference on Manufacturing Systems (CIRP CMS) study documentation.
+The Beckhoff benchmark ran on 7–8 November 2026 and covered **240,000 drops** across 12 workpieces, with 10,000 trials per workpiece in each belt mode.
 
 [User guide](USER_GUIDE.md) · [Windows launchers](WindowsLaunchers/README.md) · [Current GUI profile](configs/gui-current.json) · [Benchmark timing records](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/tree/4df4f1b27f928adca5e5d74377f8212c8f1ae0c9/timing/20261107_10000)
 
@@ -28,8 +28,8 @@ The model treats each workpiece as rigid. Friction, contact damping, collision g
 Use **Python 3.12** and [uv](https://docs.astral.sh/uv/). From PowerShell:
 
 ```powershell
-git clone --branch feature https://github.com/match-BiBaZu/Dashas_drop_sim.git
-Set-Location Dashas_drop_sim
+git clone https://github.com/match-BiBaZu/BiBaZu_PoseFindingDropSim.git
+Set-Location BiBaZu_PoseFindingDropSim
 uv sync --locked --python 3.12 --extra gui --extra dev
 uv run --no-sync dashas-drop-sim gui
 ```
@@ -106,7 +106,7 @@ Both checks require position ranges no greater than 1 mm in the evaluated axes a
 | Operating system | Windows 11 IoT Enterprise LTSC 24H2, 64-bit; supplied system screenshot: build 26100.7840 |
 | Recorded CPU availability | 24 logical CPUs; 24 workers per run |
 | Python | 3.12.13 |
-| Simulator | Dashas Drop Sim 0.5.0, commit `72b1ba08aa9b317804cd60e1e2ae6e636910f3fd` |
+| Simulator | `dashas-drop-sim` 0.5.0, commit `72b1ba08aa9b317804cd60e1e2ae6e636910f3fd` |
 | Physics and collision processing | MuJoCo 3.14.0; CoACD 1.0.14 |
 | Numerical and mesh libraries | NumPy 2.5.3; SciPy 1.18.1; trimesh 5.1.0 |
 | Symmetry package | bibazu-chute-pose 0.1.0 |
@@ -173,7 +173,7 @@ This executes additional member assessments without repeating the original relea
 
 Grouped outputs are produced when their analysis is enabled. Percentages use **all completed drop trials**, including unsettled outcomes, rather than only successfully classified poses. Preserve the exact mesh, run configuration, manifest, raw trials, simulator commit, and timing log with any published result. A shared version number alone does not establish identical simulation settings or geometry.
 
-To reproduce the measured benchmark, use [its simulator revision](https://github.com/match-BiBaZu/Dashas_drop_sim/tree/72b1ba08aa9b317804cd60e1e2ae6e636910f3fd), archived per-workpiece configuration and mesh, and the recorded software versions. The current GUI profile instead runs 100 trials with four workers and full grouped assessment. The separately maintained local comparison plotter and local result directories are excluded from this simulator repository.
+To reproduce the measured benchmark, use [its simulator revision](https://github.com/match-BiBaZu/BiBaZu_PoseFindingDropSim/tree/72b1ba08aa9b317804cd60e1e2ae6e636910f3fd), archived per-workpiece configuration and mesh, and the recorded software versions. The current GUI profile instead runs 100 trials with four workers and full grouped assessment. The separately maintained local comparison plotter and local result directories are excluded from this simulator repository.
 
 > **Suggested Figure 3 — Physical and simulated pose incidence**
 >
