@@ -52,7 +52,7 @@ uv run --no-sync python -m pytest
 
 JSON paths resolve relative to the configuration file. The current GUI profile uses elliptic cones, belt/wall friction **0.10/0.05**, damping **0.19**, and grouping with stability assessment enabled. Older explicit settings are preserved; omitted parameters in older CLI configurations can use different engine defaults. Use a complete configuration and its manifest when reproducing an experiment.
 
-##Trial protocol
+## Trial protocol
 
 The simulation settings represent the prototype's chute arrangement, PE mesh conveyor, PTFE side wall, and nominal release and transport conditions. The table distinguishes this physical correspondence from the effective contact parameters and numerical choices. Agreement in pose incidence is evaluated separately against the physical observations.
 
