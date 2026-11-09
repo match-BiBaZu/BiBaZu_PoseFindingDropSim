@@ -71,7 +71,8 @@ The simulation settings represent the prototype's chute arrangement, PE mesh con
 | Angular friction parameters | 5.0 mm torsional and 0.1 mm rolling friction | Effective resistance to contact rotation, expressed as lengths |
 | Integration | 1 ms time step | Numerical resolution |
 | Surface excitation | Stochastic `weight_impulse` disturbances for the first 1.0 s; 49.05 mm/s equivalent free-body velocity change and 0.2 s mean event interval | Statistical representation of contact irregularities; mesh topography is not resolved explicitly |
-| Moving-belt exit observation | Enabled: 0.2 s braking ramp followed by 2.0 s stationary observation, recorded separately | Additional stopped-belt observation after transport |
+| Moving-belt outcome | Recorded while the belt runs, at the virtual exit for the configured 500 mm chute | End of transport for the reported moving pose incidence |
+| Post-exit braking observation | 0.2 s braking ramp followed by 2.0 s with the belt stopped | Separate rest check after the moving outcome is recorded |
 | Pose analysis during benchmark | `group_poses: false`, `compute_stability: false`; no member disturbance assessments or catalogue publishing | Analysis choices independent of the prototype hardware |
 
 These are the values in the archived [run plan](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/4df4f1b27f928adca5e5d74377f8212c8f1ae0c9/timing/20261107_10000/run_plan.json). The impulse parameters describe simulated contact excitation, rather than measured surface topography or a measured resin/PTFE friction coefficient.
@@ -86,7 +87,7 @@ The simulator approximates the belt as a contact plane with separate stochastic 
 
 ### When is a trial settled?
 
-**Moving belt:** the primary outcome is evaluated at the virtual exit. A final half-second window checks repeated support at the belt and wall, orientation stability, and transverse motion. Longitudinal transport along the belt is permitted. The optional braking observation is a separate measurement and does not replace the moving outcome or its incidence denominator.
+**Moving belt.** At the virtual exit, the simulator records the outcome with the belt still running. The preceding half-second window checks repeated support at the belt and wall, orientation stability, and transverse motion. Longitudinal transport along the belt is permitted. The moving pose frequencies use this exit outcome. In the Beckhoff benchmark, the simulator then braked the belt and recorded a separate rest outcome. [Example moving-run summary](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/4df4f1b27f928adca5e5d74377f8212c8f1ae0c9/Kk1a/simulations/20261107_10000/100mm_s/summary.json)
 
 **Stationary from release:** the belt remains at zero throughout the drop and the 10 s observation. Exit braking is inactive. The final half-second window applies the position-range and filtered-speed limits to **all three axes**, so continued longitudinal sliding fails the rest check.
 
@@ -135,7 +136,7 @@ The following wall-clock durations are **minutes per 10,000-drop series**, measu
 
 Across all **240,000 drops**, the sum of measured simulation calls is **46,002.416 s (12 h 46 min 42 s)**. This corresponds to **5.22 drops per wall-clock second**, or **0.192 s per drop amortised across the 24 workers**. These are batch-throughput measures; a single trial's simulated observation time or individual execution latency is different.
 
-Timing uses `time.perf_counter` around `run_experiment`. It includes mesh/symmetry preparation, worker startup, physics, and raw-result writing. It excludes validation, archive compression, Git commits, and pushes. Geometry-cache reuse can affect durations. These drop-only timings exclude the additional member assessments required by current grouped execution.
+Timing uses `time.perf_counter` around `run_experiment`. It includes mesh/symmetry preparation, worker startup, physics, and raw-result writing. It excludes validation, archive compression, Git commits, and pushes. Moving-series timings include the separate post-exit braking and rest check. Geometry-cache reuse can affect durations. These drop-only timings exclude the additional member assessments required by current grouped execution.
 
 The complete workflow ran from **7 November 2026, 16:25:01 UTC** to **8 November 2026, 12:48:34 UTC**: **20 h 23 min 32 s** end to end. That interval includes preparation, validation, compression, publishing, and a logged interruption/recovery period. Use the simulation-call total when reporting compute duration; use the longer interval when reporting time to complete the whole workflow. Values are derived from the unrounded seconds in the [timing JSON](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/4df4f1b27f928adca5e5d74377f8212c8f1ae0c9/timing/20261107_10000/run_timings.json); the [timing CSV](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/4df4f1b27f928adca5e5d74377f8212c8f1ae0c9/timing/20261107_10000/run_timings.csv) provides per-run values.
 
