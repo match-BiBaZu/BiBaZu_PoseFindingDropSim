@@ -91,6 +91,11 @@ def analyze_groups(mesh_path, members: list[dict], descriptor: dict, *, alpha_de
     from .rolling_basins import scoped_model, analyze_rolling
     identity = scoped_model(mesh_path)
     if identity is not None:
+        from .contact_families import CONTACT_MESHES, analyze_contact_families
+        if identity in CONTACT_MESHES:
+            return analyze_contact_families(mesh_path, members, descriptor, identity=identity,
+                                            alpha_deg=alpha_deg, beta_deg=beta_deg,
+                                            barrier_mm=barrier_mm, max_angle_deg=max_angle_deg, step_deg=step_deg)
         return analyze_rolling(mesh_path, members, descriptor, identity=identity,
                                alpha_deg=alpha_deg, beta_deg=beta_deg, barrier_mm=barrier_mm,
                                max_angle_deg=max_angle_deg, step_deg=step_deg)
