@@ -4,6 +4,8 @@
 
 The simulator uses MuJoCo to simulate individual workpieces landing against a conveyor belt and side wall. It estimates pose incidence, distinguishes settled and unsettled outcomes, and assesses how observed poses respond to disturbances. A PyQt6 GUI supports parameter studies and visible trials; the command line supports repeatable batches and assessment of saved results.
 
+For the verified catalogue meshes Kk2i, Kk4a, Kl4i, Kl2a, Kf2a and Kf4i, pose grouping uses persistent seated-energy minima and minimax-height paths. The 60° limit applies to each local sampled path; a rolling basin may span a larger angle. Sampling remains 0.1° and the escape-barrier threshold remains 0.5 mm equivalent COM lift. An observation reaching multiple persistent minima stays separate and is marked for review. Dispatch requires both the catalogue filename identity and its pinned STL SHA-256; all other meshes use the unchanged legacy grouping model, including its whole-group diameter guard. Individual observed orientations and recognition tolerances are preserved. This geometric grouping does not establish disturbance stability or choose representatives without complete assessments.
+
 The Beckhoff benchmark ran on 7–8 November 2026 and covered **240,000 drops** across 12 workpieces, with 10,000 trials per workpiece in each belt mode.
 
 [User guide](USER_GUIDE.md) · [Windows launchers](WindowsLaunchers/README.md) · [Current GUI profile](configs/gui-current.json) · [Benchmark timing records](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/tree/4df4f1b27f928adca5e5d74377f8212c8f1ae0c9/timing/20261107_10000)

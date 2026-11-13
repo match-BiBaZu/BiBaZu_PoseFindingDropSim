@@ -88,6 +88,12 @@ def analyze_groups(mesh_path, members: list[dict], descriptor: dict, *, alpha_de
                    beta_deg=0, barrier_mm=.5, max_angle_deg=60, step_deg=.1):
     if not all(math.isfinite(x) for x in (barrier_mm, max_angle_deg, step_deg)) or barrier_mm < 0 or not 0 < max_angle_deg <= 180 or step_deg <= 0:
         raise ValueError("Invalid grouping thresholds or angular sampling step.")
+    from .rolling_basins import scoped_model, analyze_rolling
+    identity = scoped_model(mesh_path)
+    if identity is not None:
+        return analyze_rolling(mesh_path, members, descriptor, identity=identity,
+                               alpha_deg=alpha_deg, beta_deg=beta_deg, barrier_mm=barrier_mm,
+                               max_angle_deg=max_angle_deg, step_deg=step_deg)
     mesh = trimesh.load_mesh(mesh_path, process=True)
     if not mesh.is_watertight or not mesh.is_volume:
         raise ValueError("Grouping requires a closed solid mesh in mm.")
