@@ -181,3 +181,33 @@ To reproduce the measured benchmark, use [its simulator revision](https://github
 > **Suggested Figure 3 — Physical and simulated pose incidence**
 >
 > Insert an exported comparison chart with the condition, physical and simulated sample sizes, all member-pose thumbnails, and unsettled outcomes visible. State the physical observation/sampling rule and simulator revision in the caption. A second panel showing Kk1a can illustrate sensitivity to contact assumptions. Suggested image: `docs/images/pose-incidence.png`.
+
+## Geometric stability after grouping
+
+Grouping now attaches a geometry-only stability assessment after membership is
+finalized, including ordinary, rolling-basin and support-family grouping.
+`pose_quality.py` owns the classifier; it has no GUI, roadmap-application or
+physics dependency. It samples centre-of-mass lift along symmetry-aware seated
+rotation paths against the tilted belt and wall, including paths beyond 60°.
+It reuses compatible grouping paths without changing grouping itself.
+
+Stability is displayed **High** (lift ≥0.5 mm), **Medium** (0.1–<0.5 mm), then
+**Low** (<0.1 mm). Unknown means no distinct target could be assessed. Existing
+`label` values remain available for compatibility; the `stability` value supplies
+the display label. Ratings do not filter or renumber poses and are not measured
+transport survival probabilities.
+
+To annotate the 78 existing published catalogues without rerunning simulations:
+
+```powershell
+uv run python -m dashas_drop_sim.catalogue_quality --repo ..\BiBaZu_StableComponentenPoses --condition both
+```
+
+The CLI also exposes `annotate-pose-quality --repo ... --condition both`.
+All payloads are staged and checksum-verified before replacement. Cancellation
+before publication leaves original catalogues untouched; publication failures
+roll back. Raw simulations and grouping evidence remain unchanged. Native
+catalogues embed additive pose ratings and an assessment input signature;
+detached `pose_quality.json` reports hash the final catalogue, avoiding a
+self-referential checksum. Roadmap consumers verify and display these results
+without running another geometric assessment.

@@ -186,8 +186,15 @@ def assess_and_export(config, simulator, resolver, rows, run_dir, cancel, emit):
         group["member_trial_ids"] = sorted(t for key in group["members"] for t in member_by_id[key]["trial_ids"])
     for member in members:
         member.update(group_id=mapping[member["id"]], retention_auc=scores[member["id"]])
+        if "pose_quality" in analysis:
+            member["pose_quality"] = analysis["pose_quality"]["poses"][member["id"]]
         member.pop("qpos")
     _write_json(run_dir / "group_members.json", members)
+    if "pose_quality" in analysis:
+        quality = dict(analysis["pose_quality"])
+        quality["source_sha256"] = hashlib.sha256((run_dir / "group_members.json").read_bytes()).hexdigest()
+        quality["observations_sha256"] = quality["source_sha256"]
+        _write_json(run_dir / "pose_quality.json", quality)
     _write_json(run_dir / "groups.json", {"schema_version": 2, "source_revision": SOURCE_REVISION,
                 "display_ordering": "frequency_descending_then_membership_key",
                 "groups": groups, "assessment_complete": all(g["complete"] for g in groups),

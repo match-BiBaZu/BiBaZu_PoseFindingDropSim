@@ -84,7 +84,7 @@ def basin_memberships(keys, paths, *, barrier_mm: float, max_angle_deg: float):
     return memberships, review
 
 
-def analyze_groups(mesh_path, members: list[dict], descriptor: dict, *, alpha_deg=45,
+def _analyze_groups(mesh_path, members: list[dict], descriptor: dict, *, alpha_deg=45,
                    beta_deg=0, barrier_mm=.5, max_angle_deg=60, step_deg=.1):
     if not all(math.isfinite(x) for x in (barrier_mm, max_angle_deg, step_deg)) or barrier_mm < 0 or not 0 < max_angle_deg <= 180 or step_deg <= 0:
         raise ValueError("Invalid grouping thresholds or angular sampling step.")
@@ -137,3 +137,16 @@ def choose_representative(members, scores: dict, frequencies: dict, threshold_re
     if any(key not in scores or scores[key] is None for key in members):
         return None
     return min(members, key=lambda key: (-scores[key], -threshold_retention[key], -frequencies[key], key))
+
+
+def analyze_groups(mesh_path, members, descriptor, *, alpha_deg=45, beta_deg=0,
+                   barrier_mm=.5, max_angle_deg=60, step_deg=.1):
+    """Finalize grouping first, then attach independent geometric stability."""
+    from .pose_quality import analyze_pose_quality
+    result = _analyze_groups(mesh_path, members, descriptor, alpha_deg=alpha_deg,
+        beta_deg=beta_deg, barrier_mm=barrier_mm, max_angle_deg=max_angle_deg, step_deg=step_deg)
+    membership = {str(key): f"group_{index:03d}" for index, group in enumerate(result["groups"]) for key in group}
+    observed = [{**pose, "group_id": membership[str(pose["id"])]} for pose in members]
+    result["pose_quality"] = analyze_pose_quality(mesh_path, observed, descriptor,
+        alpha_deg=alpha_deg, beta_deg=beta_deg, evidence=result)
+    return result

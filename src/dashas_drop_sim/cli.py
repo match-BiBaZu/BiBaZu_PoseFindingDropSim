@@ -86,6 +86,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="BiBaZu MuJoCo fall test simulation")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("gui", help="Start the PyQt6 user interface")
+    quality_parser = commands.add_parser("annotate-pose-quality", help="Publish geometry-only stability on saved catalogues")
+    quality_parser.add_argument("--repo", type=Path, required=True)
+    quality_parser.add_argument("--condition", choices=("both", "moving", "stationary"), default="both")
+    quality_parser.add_argument("--cancel-file", type=Path)
     rebuild_parser = commands.add_parser("rebuild-groups", help="Assess published groups from saved drops without rerunning drops")
     rebuild_parser.add_argument("--run-dir", type=Path, required=True)
     rebuild_parser.add_argument("--output-dir", type=Path, required=True)
@@ -108,6 +112,12 @@ def main(argv: list[str] | None = None) -> int:
     preview_parser.add_argument("--headless", action="store_true", help="Run one trial without a viewer")
     args = parser.parse_args(argv)
     try:
+        if args.command == "annotate-pose-quality":
+            from .catalogue_quality import main as quality_main
+            command = ["--repo", str(args.repo), "--condition", args.condition]
+            if args.cancel_file:
+                command += ["--cancel-file", str(args.cancel_file)]
+            return quality_main(command)
         if args.command == "gui":
             from .gui import main as gui_main
             return gui_main()
